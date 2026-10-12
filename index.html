@@ -568,6 +568,32 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .cross-rules { display: grid; gap: 6px; margin-top: 10px; font-size: .82rem; }
 .cross-ex { margin: 6px 0; padding-left: 20px; display: grid; gap: 4px; font-size: .88rem; }
 .cross-table td.num, .cross-table th:nth-child(n+2) { text-align: center; white-space: nowrap; width: 18%; }
+
+/* 발달 체크리스트 */
+.dev-cps { display: flex; gap: 6px; overflow-x: auto; padding: 10px 2px 4px; scrollbar-width: none; }
+.dev-cps::-webkit-scrollbar { display: none; }
+.dev-cp { flex: none; position: relative; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px 7px 12px; font: inherit; font-size: .86rem; color: var(--ink); display: inline-flex; align-items: center; gap: 4px; min-height: 36px; }
+.dev-cp small { font-size: .66rem; color: var(--accent); font-weight: 700; }
+.dev-cp[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.dev-cp[aria-pressed="true"] small { color: #fff; }
+.dev-dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; display: inline-block; margin-left: 2px; }
+.dev-dot.ok { background: var(--ok); } .dev-dot.accent { background: var(--accent); } .dev-dot.warn { background: var(--warn); } .dev-dot.part { background: var(--line); }
+.dev-cp[aria-pressed="true"] .dev-dot { box-shadow: 0 0 0 1.5px #fff; }
+.dev-verdict { margin: 8px 0 10px; padding: 10px 12px; border-radius: 10px; font-weight: 700; background: var(--bg); }
+.dev-verdict.ok { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); color: var(--ok); }
+.dev-verdict.accent { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.dev-verdict.warn { background: var(--warn-soft); color: var(--warn); }
+.dev-dom { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.dev-dl { width: 68px; font-size: .84rem; flex: none; } .dev-sc { width: 54px; text-align: right; font-size: .8rem; color: var(--muted); flex: none; }
+.dev-list { padding-top: 4px; padding-bottom: 4px; }
+.dev-item { padding: 10px 0; display: grid; gap: 7px; } .dev-item + .dev-item { border-top: 1px solid var(--line); }
+.dev-q { font-size: .93rem; line-height: 1.45; }
+.dev-ans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.dev-ans button { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 6px 4px; font: inherit; font-size: .8rem; color: var(--muted); min-height: 34px; }
+.dev-ans button.a2[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; }
+.dev-ans button.a1[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.dev-ans button.a0[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; font-weight: 600; }
+.dev-tips li { margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -876,6 +902,85 @@ const DEV_STAGES = [
   { from: 24, to: 36, title: '2~3세', milestones: ['두 발로 깡충 뛰어요', '세 단어 이상 문장으로 말해요', '친구와 나란히 놀아요', '대소변 가리기를 시작해요'], sleep: '하루 11~14시간.', feed: '골고루 먹는 습관을 들여요. 식사 시간은 30분 안쪽으로.', flags: ['말이 거의 늘지 않아요', '눈맞춤이 적고 혼자만 놀아요'] },
   { from: 36, to: 60, title: '3~5세', milestones: ['세발자전거를 타요', '이야기를 순서대로 말해요', '규칙이 있는 놀이를 해요', '옷을 혼자 입고 벗어요'], sleep: '하루 10~13시간.', feed: '세 끼와 간식. 단 음료와 과자는 줄여요.', flags: ['낯선 사람이 아이 말을 거의 알아듣지 못해요', '또래와 어울리지 못해요'] },
 ];
+/* 발달 체크리스트: 미국 CDC "Learn the Signs. Act Early." 발달 이정표(2022)를 참고해 우리말로 정리.
+   각 항목은 그 나이까지 또래 대부분(75% 이상)이 하는 것. 못 하는 항목이 있으면 상담해 보라는 신호일 뿐 진단이 아니다. */
+const DEV_DOMAINS = [['social', '사회·정서'], ['lang', '언어·소통'], ['cog', '인지·학습'], ['move', '운동·신체']];
+const DEV_CHECKS = [
+  { m: 2, title: '2개월', items: {
+    social: ['안아 주거나 말을 걸면 진정해요', '엄마·아빠 얼굴을 쳐다봐요', '다가가면 반가워하는 것 같아요', '말을 걸거나 웃어 주면 따라 웃어요'],
+    lang: ['울음 말고 다른 소리를 내요', '큰 소리에 반응해요'],
+    cog: ['움직이는 사람을 눈으로 따라가요', '장난감을 몇 초 동안 바라봐요'],
+    move: ['엎드려 놓으면 고개를 들어요', '양팔과 양다리를 움직여요', '주먹 쥔 손을 잠깐씩 펴요'] },
+    tips: ['깨어 있을 때 엎드려 놀기(터미 타임)를 짧게 자주 해요', '얼굴을 가까이 대고 천천히 말을 걸어 줘요', '울 때 빨리 안아 주면 안정감이 생겨요'] },
+  { m: 4, title: '4개월', items: {
+    social: ['관심을 끌려고 먼저 웃어요', '웃기려고 하면 킥킥 소리를 내요', '관심을 끌려고 쳐다보거나 몸을 움직이거나 소리를 내요'],
+    lang: ['"우~", "아~" 같은 소리(쿠잉)를 내요', '말을 걸면 소리로 대답해요', '목소리가 나는 쪽으로 고개를 돌려요'],
+    cog: ['배고플 때 젖이나 젖병을 보면 입을 벌려요', '자기 손을 신기한 듯 바라봐요'],
+    move: ['안고 있을 때 받쳐 주지 않아도 고개를 가눠요', '손에 쥐여 준 장난감을 잡고 있어요', '팔을 휘둘러 장난감을 쳐요', '손을 입으로 가져가요', '엎드리면 팔꿈치로 상체를 받쳐요'] },
+    tips: ['아기 소리를 따라 하며 "대화"를 주고받아요', '잡기 쉬운 딸랑이를 손에 쥐여 줘요', '엎드려 놀 때 앞에 장난감을 두어 고개를 들게 해요'] },
+  { m: 6, title: '6개월', items: {
+    social: ['익숙한 사람을 알아봐요', '거울 속 자기 모습을 보는 걸 좋아해요', '소리 내어 웃어요'],
+    lang: ['엄마·아빠와 번갈아 소리를 주고받아요', '입술로 "푸르르" 소리를 내요', '꺅 하는 높은 소리를 내요'],
+    cog: ['물건을 입에 넣어 탐색해요', '갖고 싶은 장난감에 손을 뻗어 잡아요', '그만 먹고 싶으면 입을 다물어요'],
+    move: ['엎드린 자세에서 뒤로 뒤집어요', '엎드려서 팔을 쭉 펴고 상체를 들어요', '앉혀 주면 손을 짚고 버텨요'] },
+    tips: ['거울 앞에서 함께 놀며 표정을 지어 보여요', '아기 손이 닿을 듯 말 듯한 곳에 장난감을 둬요', '그림책을 보며 사물 이름을 말해 줘요'] },
+  { m: 9, title: '9개월', items: {
+    social: ['낯선 사람을 보면 수줍어하거나 매달리거나 무서워해요', '기쁨·슬픔·화남·놀람 등 여러 표정을 지어요', '이름을 부르면 쳐다봐요', '엄마·아빠가 떠나면 쳐다보거나 손을 뻗거나 울어요', '까꿍 놀이를 하면 웃어요'],
+    lang: ['"마마마", "바바바" 같은 여러 소리를 내요', '안아 달라고 두 팔을 들어요'],
+    cog: ['떨어뜨린 물건이 안 보이면 찾아요', '두 물건을 맞부딪혀 소리를 내요'],
+    move: ['혼자 앉는 자세로 바꿔 앉아요', '물건을 한 손에서 다른 손으로 옮겨요', '손가락으로 음식을 긁어모아요', '받쳐 주지 않아도 앉아 있어요'] },
+    tips: ['까꿍 놀이, 숨긴 장난감 찾기를 해요', '"공 주세요", "안아 줄까?"처럼 몸짓과 말을 함께 써요', '손으로 집어 먹을 수 있는 부드러운 음식을 줘요'] },
+  { m: 12, title: '12개월', items: {
+    social: ['짝짜꿍 같은 놀이를 함께 해요'],
+    lang: ['"빠이빠이" 손을 흔들어요', '엄마·아빠를 "엄마", "아빠"처럼 부르는 말이 있어요', '"안 돼"를 알아들어요(잠깐 멈추거나 그만둬요)'],
+    cog: ['컵에 블록을 넣는 것처럼 통 안에 물건을 넣어요', '눈앞에서 숨긴 물건을 찾아요'],
+    move: ['잡고 일어서요', '가구를 잡고 옆으로 걸어요', '잡아 주면 뚜껑 없는 컵으로 마셔요', '엄지와 검지로 작은 것을 집어요'] },
+    tips: ['아이가 가리키는 것의 이름을 말해 줘요', '넣고 빼기 놀이(통에 블록 넣기)를 해요', '집 안을 안전하게 정리하고 마음껏 잡고 서게 해요'] },
+  { m: 15, title: '15개월', items: {
+    social: ['놀 때 다른 아이를 따라 해요', '좋아하는 물건을 보여 줘요', '신나면 손뼉을 쳐요', '인형이나 장난감을 안아 줘요', '안기기, 뽀뽀 등으로 애정을 표현해요'],
+    lang: ['"엄마", "아빠" 말고 한두 단어를 말하려고 해요', '익숙한 물건 이름을 말하면 그 물건을 쳐다봐요', '몸짓과 말을 함께 하면 지시를 따라요', '원하는 것이 있거나 도움이 필요하면 손가락으로 가리켜요'],
+    cog: ['전화기·컵·책 같은 물건을 제대로 쓰려고 해요', '작은 물건을 두 개 이상 쌓아요'],
+    move: ['혼자 몇 걸음 걸어요', '손가락으로 음식을 집어 먹어요'] },
+    tips: ['"컵 가져올래?"처럼 쉬운 심부름을 시켜 봐요', '블록 쌓기, 공 굴리기를 함께 해요', '아이 말을 조금 늘려서 되돌려 줘요("물" → "물 마실래?")'] },
+  { m: 18, title: '18개월', items: {
+    social: ['떨어져 놀다가도 엄마·아빠가 가까이 있는지 확인해요', '재미있는 것을 가리켜 보여 줘요', '손을 씻겨 달라고 내밀어요', '함께 그림책을 몇 장 넘겨 봐요', '옷 입힐 때 팔을 넣거나 발을 들어 도와요'],
+    lang: ['"엄마", "아빠" 말고 세 단어 이상 말하려고 해요', '몸짓 없이 말로만 한 가지 지시를 따라요'],
+    cog: ['청소처럼 어른이 하는 집안일을 따라 해요', '자동차 밀기처럼 장난감을 간단한 방식으로 가지고 놀아요'],
+    move: ['잡지 않고 혼자 걸어요', '끄적거려요', '뚜껑 없는 컵으로 가끔 흘리면서 마셔요', '손으로 집어 스스로 먹어요', '숟가락을 써 보려고 해요', '도움 없이 소파나 의자에 오르내려요'] },
+    tips: ['그림책을 읽으며 "강아지 어디 있어?"처럼 물어봐요', '크레용으로 함께 끄적이며 놀아요', '숟가락질은 흘려도 스스로 해 보게 해요'] },
+  { m: 24, title: '2세', items: {
+    social: ['다른 사람이 다치거나 속상해하면 알아채요', '새로운 상황에서 엄마·아빠 얼굴을 보고 어떻게 할지 살펴요'],
+    lang: ['책을 보며 물어보면 그림을 가리켜요', '"우유 더"처럼 두 단어를 이어 말해요', '물어보면 신체 부위를 두 군데 이상 가리켜요', '뽀뽀 날리기, 고개 끄덕이기 등 손 흔들기·가리키기 말고 다른 몸짓도 써요'],
+    cog: ['한 손으로 물건을 잡고 다른 손으로 다른 일을 해요', '장난감의 스위치·손잡이·버튼을 조작해 보려고 해요', '장난감 여러 개를 함께 가지고 놀아요'],
+    move: ['공을 차요', '뛰어요', '도움을 받거나 혼자서 계단 몇 칸을 걸어 올라가요', '숟가락으로 떠먹어요'] },
+    tips: ['아이 감정에 이름을 붙여 줘요("속상했구나")', '공 차기, 뛰기 같은 바깥 놀이를 자주 해요', '두 단어로 말할 기회를 줘요("뭐 줄까?" 하고 기다리기)'] },
+  { m: 30, title: '2세 반', items: {
+    social: ['다른 아이 옆에서 놀다가 가끔 같이 놀아요', '"이거 봐!" 하며 자기가 할 수 있는 걸 보여 줘요', '말해 주면 간단한 생활 순서를 따라요'],
+    lang: ['50개 정도의 단어를 말해요', '"멍멍이 뛰어"처럼 동작 말이 들어간 두 단어 이상을 이어 말해요', '책 그림을 가리키며 물으면 이름을 말해요', '"나", "내 거", "우리" 같은 말을 써요'],
+    cog: ['블록을 인형에게 먹이는 척처럼 물건으로 흉내 놀이를 해요', '간단한 문제를 스스로 해결해 보려고 해요', '"신발 신고 문 앞에 서자"처럼 두 단계 지시를 따라요', '색깔을 하나 이상 알아요'],
+    move: ['문손잡이를 돌리거나 뚜껑을 비틀어 열어요', '옷 몇 가지를 혼자 벗어요', '두 발을 모아 깡충 뛰어요', '책장을 한 장씩 넘겨요'] },
+    tips: ['역할 놀이(소꿉놀이, 병원 놀이)를 함께 해요', '"먼저 ~하고 그다음 ~하자" 두 단계 말을 써 봐요', '옷 벗기·신발 신기를 스스로 해 보게 기다려 줘요'] },
+  { m: 36, title: '3세', items: {
+    social: ['어린이집 등에서 헤어진 뒤 10분 안에 진정해요', '다른 아이들을 보고 같이 놀려고 끼어들어요'],
+    lang: ['두 번 이상 말을 주고받으며 대화해요', '"누구?", "뭐야?", "어디?", "왜?" 하고 물어요', '그림이나 책에서 무슨 일이 일어나는지 말해요', '이름을 물으면 자기 이름을 말해요', '처음 듣는 사람도 아이 말을 대부분 알아들어요'],
+    cog: ['보여 주면 동그라미를 따라 그려요', '"뜨거워" 하고 알려 주면 뜨거운 것을 만지지 않아요'],
+    move: ['큰 구슬이나 마카로니를 줄에 꿰어요', '옷 몇 가지를 혼자 입어요', '포크를 써서 먹어요'] },
+    tips: ['아이의 "왜?" 질문에 짧게 답하고 되물어 봐요', '구슬 꿰기, 점토 놀이로 손힘을 길러요', '또래와 놀 기회를 만들어 줘요'] },
+  { m: 48, title: '4세', items: {
+    social: ['놀 때 다른 무언가가 된 척해요(선생님, 공룡 등)', '주변에 친구가 없으면 같이 놀러 가자고 해요', '다치거나 슬퍼하는 사람을 달래요', '위험한 것을 피해요', '"도와줄게" 하며 돕는 걸 좋아해요', '장소에 따라 행동을 바꿔요(도서관에서는 조용히 등)'],
+    lang: ['네 단어 이상으로 된 문장을 말해요', '노래나 동요, 이야기의 일부를 따라 말해요', '그날 있었던 일을 하나 이상 이야기해요', '"외투는 왜 입어?" 같은 간단한 질문에 대답해요'],
+    cog: ['물건의 색깔을 몇 가지 말해요', '잘 아는 이야기에서 다음에 무슨 일이 일어나는지 말해요', '몸의 부분이 세 개 이상 있는 사람을 그려요'],
+    move: ['큰 공을 대부분 잡아요', '어른이 보는 앞에서 음식을 덜거나 물을 따라요', '단추 몇 개를 풀어요', '크레용을 주먹이 아니라 손가락으로 쥐어요'] },
+    tips: ['그날 있었던 일을 저녁에 함께 이야기해요', '공 주고받기, 그리기 놀이를 해요', '식탁 차리기 같은 작은 일을 맡겨요'] },
+  { m: 60, title: '5세', items: {
+    social: ['친구들과 놀 때 규칙을 지키거나 차례를 기다려요', '노래하거나 춤추거나 연기하며 보여 줘요', '집에서 간단한 일을 해요(양말 짝 맞추기 등)'],
+    lang: ['두 가지 이상 일이 있는 이야기를 들려줘요', '책을 읽어 준 뒤 물어보면 내용에 대답해요', '세 번 넘게 말을 주고받으며 대화를 이어 가요', '끝소리가 같은 말 찾기 같은 말놀이를 하거나 알아들어요'],
+    cog: ['10까지 세어요', '1~5 사이 숫자를 가리키면 몇 개를 읽어요', '"어제", "내일", "아침", "밤" 같은 시간 말을 써요', '활동할 때 5~10분 정도 집중해요', '자기 이름의 글자를 몇 개 써요', '가리키는 글자를 몇 개 읽어요'],
+    move: ['단추 몇 개를 채워요', '한 발로 깡충 뛰어요'] },
+    tips: ['보드게임처럼 차례와 규칙이 있는 놀이를 해요', '숫자·글자를 생활 속에서 자연스럽게 보여 줘요(엘리베이터 숫자, 간판)', '한 발 뛰기, 줄넘기 흉내 같은 몸 놀이를 해요'] },
+];
+const DEV_ANS = [[2, '잘해요'], [1, '가끔·조금'], [0, '아직 못해요']];
+const DEV_SOURCE = '미국 질병통제예방센터(CDC) 발달 이정표(2022)를 참고해 만든 체크리스트예요. 각 항목은 그 나이까지 또래 대부분(75% 이상)이 하는 것들이라, 못 하는 항목이 있으면 상담해 보라는 신호일 뿐 진단은 아니에요. 정확한 평가는 영유아 건강검진의 발달선별검사(K-DST)나 소아청소년과에서 받아요. 일찍 태어난 아이는 교정 월령(출산 예정일 기준)으로 보세요.';
 const DEV_COMMON_FLAG = '이미 하던 것을 갑자기 못 하게 되면(퇴행) 개월 수와 상관없이 소아청소년과 진료를 받아 보세요.';
 
 /* ---- 04-types.js ---- */
@@ -1062,7 +1167,7 @@ async function loadAll() {
   D.children.sort((a, b) => a.createdAt - b.createdAt);
 }
 /* 가족 공유 때 함께 맞출 설정 */
-const SHARED_KV = ['timers', 'devChecks', 'tagPresets', 'kindPresets', 'milkDiscard'];
+const SHARED_KV = ['timers', 'devChecks', 'devAns', 'tagPresets', 'kindPresets', 'milkDiscard'];
 async function setKV(key, v, { fromSync = false } = {}) {
   D.kv[key] = v; await DB.put('kv', { id: key, v });
   if (!fromSync && SHARED_KV.includes(key)) { const st = { ...(D.kv.kvStamp || {}) }; st[key] = Date.now(); D.kv.kvStamp = st; await DB.put('kv', { id: 'kvStamp', v: st }); markDirty('kv', key); }
@@ -1216,7 +1321,7 @@ async function importBackup(obj, mode = 'merge') {
     await DB.put('photos', { id: p.id, childId: p.childId, w: p.w, h: p.h, createdAt: p.createdAt, blob: await dataURLToBlob(p.data), ...(p.kind === 'audio' ? { kind: 'audio', mime: p.mime, dur: p.dur } : {}) }); stat.photos++;
   }
   if (obj.kv) {
-    for (const k of ['quickTypes', 'statusCards', 'tagPresets', 'devChecks', 'theme', 'notify', 'feedReminderH']) if (obj.kv[k] !== undefined && (mode === 'replace' || D.kv[k] === undefined)) await setKV(k, obj.kv[k]);
+    for (const k of ['quickTypes', 'statusCards', 'tagPresets', 'devChecks', 'devAns', 'theme', 'notify', 'feedReminderH']) if (obj.kv[k] !== undefined && (mode === 'replace' || D.kv[k] === undefined)) await setKV(k, obj.kv[k]);
   }
   D.children = D.children.filter((c) => !c.deleted); D.supplies = D.supplies.filter((x) => !x.deleted);
   D.children.sort((a, b) => a.createdAt - b.createdAt);
@@ -1837,6 +1942,31 @@ function crossReadyAt(a, b, aAt, status) {
   if (g && g.last && g.next > at) { at = g.next; reason = g.reason; }
   return { at, reason };
 }
+
+/* --- 발달 체크리스트 점수 --- */
+// 지금 나이에 맞는 체크: 이미 지난 시기 중 가장 늦은 것 (2개월 전이면 2개월)
+function devCheckpointIdx(ageM) { let i = 0; DEV_CHECKS.forEach((c, k) => { if (ageM >= c.m) i = k; }); return i; }
+// answers: { '12-lang-0': 2, ... } (2 잘해요, 1 가끔, 0 아직)
+// status: ok(모두 잘해요) / watch(가끔이 있음) / talk(아직 못하는 항목 있음) / none(답하지 않음) / partial(일부만 답함, 아직 문제 없음)
+function devScore(idx, answers = {}) {
+  const cp = DEV_CHECKS[idx];
+  const domains = DEV_DOMAINS.map(([key, label]) => {
+    const list = cp.items[key] || []; const vals = list.map((_, i) => answers[`${cp.m}-${key}-${i}`]);
+    const answered = vals.filter((v) => v != null).length; const score = vals.reduce((a, v) => a + (v || 0), 0);
+    const zero = list.filter((_, i) => vals[i] === 0); const some = list.filter((_, i) => vals[i] === 1);
+    const status = !answered ? 'none' : zero.length ? 'talk' : answered < list.length ? 'partial' : some.length ? 'watch' : 'ok';
+    return { key, label, n: list.length, answered, score, max: list.length * 2, zero, some, status };
+  });
+  const answered = domains.reduce((a, d) => a + d.answered, 0), n = domains.reduce((a, d) => a + d.n, 0);
+  const rank = { talk: 4, watch: 3, partial: 2, ok: 1, none: 0 };
+  const worst = domains.reduce((w, d) => rank[d.status] > rank[w] ? d.status : w, 'none');
+  const status = worst === 'talk' ? 'talk' : !answered ? 'none' : answered < n ? 'partial' : worst;
+  return { m: cp.m, title: cp.title, domains, answered, n, score: domains.reduce((a, d) => a + d.score, 0), max: n * 2, status };
+}
+const DEV_STATUS = {
+  ok: ['또래만큼 잘하고 있어요', 'ok'], watch: ['잘 자라는 중이에요. 함께 연습해 봐요', 'accent'], talk: ['진료·검진 때 이야기해 보세요', 'warn'],
+  partial: ['아직 답하지 않은 항목이 있어요', ''], none: ['아직 확인하지 않았어요', ''],
+};
 
 /* ---- 07-ui.js ---- */
 /* ===== 화면 상태 & 공통 컴포넌트 ===== */
@@ -2851,23 +2981,57 @@ ACT.schedTap = (el) => {
 };
 
 function devView(child) {
-  const ageM = ageMonthsFloat(child.birth);
-  let idx = S.growth.devIdx; if (idx == null) { idx = DEV_STAGES.findIndex((s) => ageM >= s.from && ageM < s.to); if (idx < 0) idx = ageM < 0 ? 0 : DEV_STAGES.length - 1; }
-  const st = DEV_STAGES[idx]; const checks = (kv('devChecks', {})[child.id]) || {};
-  const doneN = st.milestones.filter((_, i) => checks[`${idx}-${i}`]).length;
-  let h = `<div class="chips" style="margin-top:10px">${DEV_STAGES.map((s, i) => chip(s.title, i === idx, 'devStage', i)).join('')}</div>`;
-  h += `<div class="card" style="margin-top:12px"><div class="spread"><h2>${esc(st.title)}에 많이 하는 것</h2><span class="small muted">${doneN}/${st.milestones.length}</span></div>
-    <div style="margin-top:6px">${st.milestones.map((m, i) => `<button type="button" class="check" aria-pressed="${!!checks[`${idx}-${i}`]}" data-act="devCheck" data-a="${idx}-${i}"><span class="box">${checks[`${idx}-${i}`] ? ICONS.check : ''}</span><span>${esc(m)}</span></button>`).join('')}</div>
-    <p class="tiny muted">아이마다 몇 달씩 차이 날 수 있어요.</p></div>`;
-  h += `<div class="two" style="margin-top:12px"><div class="card"><span class="label">수면</span><p class="small" style="margin:4px 0 0">${esc(st.sleep)}</p></div><div class="card"><span class="label">먹기</span><p class="small" style="margin:4px 0 0">${esc(st.feed)}</p></div></div>`;
-  h += `<div class="notice warn" style="margin-top:12px"><b>이럴 땐 진료나 검진 때 상담해 보세요</b><ul class="plain small" style="margin-top:4px">${st.flags.map((f) => `<li>${esc(f)}</li>`).join('')}<li>${esc(DEV_COMMON_FLAG)}</li></ul></div>`;
+  const ageM = ageMonthsFloat(child.birth); const rec = devCheckpointIdx(ageM);
+  const idx = S.growth.devIdx ?? rec; const cp = DEV_CHECKS[idx];
+  const ans = (kv('devAns', {})[child.id]) || {}; const sc = devScore(idx, ans); const stl = DEV_STATUS[sc.status];
+  const dotCls = (st) => ({ ok: 'ok', watch: 'accent', talk: 'warn', partial: 'part', none: '' }[st]);
+  let h = `<div class="dev-cps">${DEV_CHECKS.map((c, i) => { const st = devScore(i, ans).status; return `<button type="button" class="dev-cp" aria-pressed="${i === idx}" data-act="devStage" data-a="${i}">${esc(c.title)}${i === rec ? '<small>지금</small>' : ''}<i class="dev-dot ${dotCls(st)}"></i></button>`; }).join('')}</div>`;
+  h += `<p class="small muted" style="margin:6px 2px 0">${idx === rec ? `지금(${esc(ageText(child.birth))})은 <b>${esc(cp.title)}</b> 체크리스트를 확인할 때예요.` : `지금 나이 기준은 ${esc(DEV_CHECKS[rec].title)} 체크예요. ${idx > rec ? '이 시기는 앞으로 하게 될 것들이에요.' : '지난 시기를 보고 있어요.'}`}</p>`;
+  // 요약
+  h += `<div class="card dev-sum" style="margin-top:10px"><div class="spread"><h2>${esc(cp.title)} 발달 체크</h2><span class="small muted">${sc.answered}/${sc.n} 답함</span></div>
+    <div class="dev-verdict ${stl[1]}">${esc(stl[0])}</div>
+    ${sc.domains.map((d) => `<div class="dev-dom"><span class="dev-dl">${esc(d.label)}</span><div class="bar-track grow"><div class="bar-fill" style="width:${d.max ? (d.score / d.max) * 100 : 0}%;--tone:${d.status === 'talk' ? 'var(--warn)' : d.status === 'ok' ? 'var(--ok)' : 'var(--accent)'}"></div></div><span class="dev-sc num">${d.answered ? `${d.score}/${d.max}점` : '-'}</span></div>`).join('')}
+    <p class="tiny muted" style="margin:8px 0 0">항목마다 잘해요 2점, 가끔·조금 1점, 아직 못해요 0점이에요.</p></div>`;
+  if (sc.status === 'talk') {
+    const zeros = sc.domains.flatMap((d) => d.zero.map((t) => `${d.label}: ${t}`));
+    h += `<div class="notice warn" style="margin-top:12px"><b>아직 못하는 항목이 ${zeros.length}개 있어요</b><ul class="plain small" style="margin-top:4px">${zeros.map((z) => `<li>${esc(z)}</li>`).join('')}</ul>
+      <p class="small" style="margin:6px 0 0">이 나이 또래 대부분이 하는 것들이에요. 아이마다 속도가 달라 몇 주 뒤 다시 해 보면 되는 경우도 많지만, 다음 영유아 건강검진이나 소아과 진료 때 이 목록을 보여 주며 상담해 보세요.</p>
+      <div style="margin-top:8px">${btn(`${ICONS.copy} 진료 때 보여 줄 내용 복사`, 'devCopy', { cls: 'sm' })}</div><textarea id="dev-out" class="input" readonly hidden></textarea></div>`;
+  } else if (sc.status === 'watch') h += `<div class="notice" style="margin-top:12px">"가끔·조금"인 항목은 아래 놀이로 함께 연습해 봐요. 한두 달 뒤 다시 확인해 보세요.</div>`;
+  else if (sc.status === 'ok') h += `<div class="notice ok" style="margin-top:12px">이 시기에 또래가 하는 것들을 모두 잘하고 있어요. 다음 시기(${esc(DEV_CHECKS[Math.min(idx + 1, DEV_CHECKS.length - 1)].title)})도 미리 볼 수 있어요.</div>`;
+  // 영역별 항목
+  for (const d of sc.domains) {
+    const list = cp.items[d.key];
+    h += `<div class="section-title"><h2>${esc(d.label)}</h2><span class="small muted">${d.answered ? `${d.score}/${d.max}점` : `${d.n}개`}</span></div><div class="card dev-list">${list.map((t, i) => {
+      const k = `${cp.m}-${d.key}-${i}`; const v = ans[k];
+      return `<div class="dev-item"><span class="dev-q">${esc(t)}</span><div class="dev-ans" role="group" aria-label="${esc(t)}">${DEV_ANS.map(([val, l]) => `<button type="button" class="a${val}" aria-pressed="${v === val}" data-act="devAns" data-a="${k}" data-b="${val}">${l}</button>`).join('')}</div></div>`;
+    }).join('')}</div>`;
+  }
+  h += sectionTitle('이렇게 놀아 주세요') + `<div class="card"><ul class="plain small dev-tips">${cp.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
+  const st = DEV_STAGES.find((x) => cp.m > x.from && cp.m <= x.to) || DEV_STAGES[0];
+  h += `<div class="two" style="margin-top:12px"><div class="card"><span class="label">수면 (${esc(st.title)})</span><p class="small" style="margin:4px 0 0">${esc(st.sleep)}</p></div><div class="card"><span class="label">먹기 (${esc(st.title)})</span><p class="small" style="margin:4px 0 0">${esc(st.feed)}</p></div></div>`;
+  h += `<div class="notice warn" style="margin-top:12px"><b>이럴 땐 점수와 상관없이 상담해 보세요</b><ul class="plain small" style="margin-top:4px">${st.flags.map((f) => `<li>${esc(f)}</li>`).join('')}<li>${esc(DEV_COMMON_FLAG)}</li></ul></div>`;
+  if (sc.answered) h += `<div style="margin-top:10px">${btn(S.confirm === 'devReset' ? '한 번 더 누르면 이 시기 답을 지워요' : `${esc(cp.title)} 답 지우기`, 'devReset', { cls: 'sm block' })}</div>`;
+  h += `<p class="tiny muted" style="margin:10px 2px">${esc(DEV_SOURCE)}</p>`;
   return h;
 }
 ACT.devStage = (el) => { S.growth.devIdx = +el.dataset.a; render(); };
-ACT.devCheck = async (el) => {
-  const child = activeChild(); const all = { ...kv('devChecks', {}) }; const c = { ...(all[child.id] || {}) };
-  if (c[el.dataset.a]) delete c[el.dataset.a]; else c[el.dataset.a] = Date.now();
-  all[child.id] = c; await setKV('devChecks', all); render();
+ACT.devAns = async (el) => {
+  const child = activeChild(); const all = { ...kv('devAns', {}) }; const c = { ...(all[child.id] || {}) };
+  const v = +el.dataset.b; if (c[el.dataset.a] === v) delete c[el.dataset.a]; else c[el.dataset.a] = v;
+  all[child.id] = c; await setKV('devAns', all); render();
+};
+ACT.devReset = async () => {
+  if (S.confirm !== 'devReset') { S.confirm = 'devReset'; render(); return; }
+  S.confirm = null; const child = activeChild(); const idx = S.growth.devIdx ?? devCheckpointIdx(ageMonthsFloat(child.birth)); const m = DEV_CHECKS[idx].m;
+  const all = { ...kv('devAns', {}) }; const c = { ...(all[child.id] || {}) }; for (const k of Object.keys(c)) if (k.startsWith(m + '-')) delete c[k];
+  all[child.id] = c; await setKV('devAns', all); render(); toast('이 시기 답을 지웠어요');
+};
+ACT.devCopy = async () => {
+  const child = activeChild(); const idx = S.growth.devIdx ?? devCheckpointIdx(ageMonthsFloat(child.birth));
+  const sc = devScore(idx, (kv('devAns', {})[child.id]) || {});
+  const text = `[${sc.title} 발달 체크] ${fmtDot(Date.now())} · ${ageText(child.birth)}\n` + sc.domains.map((d) => `${d.label} ${d.answered ? `${d.score}/${d.max}점` : '-'}${d.zero.length ? `\n  아직: ${d.zero.join(', ')}` : ''}${d.some.length ? `\n  가끔: ${d.some.join(', ')}` : ''}`).join('\n');
+  await copyText(text, '#dev-out');
 };
 
 /* ---- 13-more.js ---- */
@@ -3410,7 +3574,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.13.0';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
