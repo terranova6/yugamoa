@@ -522,6 +522,32 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .mem-moods .chip { background: rgba(255,255,255,.1); color: #fff; border-color: rgba(255,255,255,.2); }
 .mem-moods .chip[aria-pressed="true"] { background: #fff; color: #1b1715; }
 .mem-prompt .sheet-body { padding-top: 18px; gap: 16px; }
+
+/* 접종·검진 달력 */
+.hc-next { display: grid; gap: 2px; margin-bottom: 10px; }
+.hc-next .btn { justify-self: start; margin-top: 6px; }
+.hc .hc-day { aspect-ratio: 1; }
+.hc-day.open { background: color-mix(in srgb, var(--c-vaccine) 12%, var(--surface)); }
+.hc-marks { position: absolute; left: 0; right: 0; bottom: 5px; display: flex; justify-content: center; gap: 3px; }
+.hc-m { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+.hc-m.done { background: var(--ok, #2a9a57); }
+.hc-m.start { background: var(--c-vaccine); }
+.hc-m.end { background: transparent; box-shadow: inset 0 0 0 2px var(--warn, #c79400); }
+.hc-m.end.over { box-shadow: inset 0 0 0 2px var(--danger); }
+.hc-sw { --tone: color-mix(in srgb, var(--c-vaccine) 22%, var(--surface)); }
+.hc-cap { margin: 10px 2px 6px; }
+.hc-day.sel { box-shadow: inset 0 0 0 3px var(--c-vaccine); }
+
+/* 같이 먹여도 될까 */
+.cross-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.cross-opt { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 9px 11px; display: grid; gap: 1px; font: inherit; color: var(--ink); min-height: 52px; }
+.cross-opt span { font-size: .74rem; color: var(--muted); }
+.cross-opt[aria-pressed="true"] { border-color: var(--c-med); box-shadow: inset 0 0 0 1.5px var(--c-med); background: color-mix(in srgb, var(--c-med) 10%, var(--surface)); }
+.cross-res ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9rem; }
+.cross-res.ok { box-shadow: inset 4px 0 0 var(--c-med); }
+.cross-res.danger { box-shadow: inset 4px 0 0 var(--danger); }
+.cross-res.warn { box-shadow: inset 4px 0 0 var(--c-symptom); }
+.cross-when { margin: 8px 0 0; font-weight: 600; font-size: .9rem; }
 </style>
 </head>
 <body>
@@ -1696,6 +1722,68 @@ function buildDemo(now = Date.now()) {
   return { child, recs, supplies };
 }
 
+/* --- 접종·검진 달력 --- */
+// 한 달 동안 날짜마다: 완료한 일정, 권장 시기가 시작·끝나는 일정, 그날 맞을 수 있는(아직 안 한) 일정
+function healthSchedule(child, now = Date.now()) {
+  return [...scheduleItems(child, 'vaccine', now).map((x) => ({ ...x, kind: 'vaccine' })), ...scheduleItems(child, 'checkup', now).map((x) => ({ ...x, kind: 'checkup' }))];
+}
+function healthCalMonth(child, year, month, now = Date.now()) {
+  const items = healthSchedule(child, now);
+  const first = new Date(year, month, 1).getTime(), last = new Date(year, month + 1, 1).getTime();
+  const days = [];
+  for (let d = first; d < last; d = addDays(d, 1)) {
+    const e = addDays(d, 1);
+    const done = items.filter((x) => x.rec && x.rec.start >= d && x.rec.start < e);
+    const todo = items.filter((x) => !x.rec);
+    days.push({ day: d, done, starts: todo.filter((x) => sameDay(x.fromTs, d)), ends: todo.filter((x) => sameDay(x.toTs, d)), open: todo.filter((x) => x.fromTs < e && dayStart(x.toTs) >= d) });
+  }
+  const next = items.filter((x) => !x.rec && x.toTs >= dayStart(now)).sort((a, b) => a.fromTs - b.fromTs);
+  const nextDay = next.length ? next[0].fromTs : null;
+  return { first, lead: new Date(first).getDay(), days, next: next.filter((x) => nextDay != null && sameDay(x.fromTs, nextDay)) };
+}
+// 휴대폰 달력에 넣을 일정 파일(.ics). 권장 시작일마다 하루 일정 하나, 전날 오전 9시 알림
+function scheduleIcs(child, now = Date.now()) {
+  const todo = healthSchedule(child, now).filter((x) => !x.rec && x.status !== 'overdue');
+  const byDay = new Map();
+  for (const x of todo) { const k = dayStart(x.fromTs); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(x); }
+  const ymd = (ts) => { const d = new Date(ts); return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`; };
+  const esc2 = (s) => String(s).replace(/[\;,]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
+  const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//yugamoa//schedule//KO', 'CALSCALE:GREGORIAN'];
+  for (const [day, list] of [...byDay.entries()].sort((a, b) => a[0] - b[0])) {
+    const vac = list.filter((x) => x.kind === 'vaccine'), chk = list.filter((x) => x.kind === 'checkup');
+    const title = [vac.length ? `예방접종 ${vac.length}개` : '', chk.map((x) => x.name).join(', ')].filter(Boolean).join(' · ');
+    const desc = list.map((x) => `${x.name}${x.dose ? ` ${x.dose}차` : ''}: ${fmtDot(x.fromTs)} ~ ${fmtDot(x.toTs)}`).join('\n') + '\n일정은 예방접종도우미·국민건강보험공단에서 최종 확인하세요.';
+    lines.push('BEGIN:VEVENT', `UID:${child.id}-${ymd(day)}@yugamoa`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${ymd(day)}`, `DTEND;VALUE=DATE:${ymd(addDays(day, 1))}`,
+      `SUMMARY:${esc2(`${child.name} ${title}`)}`, `DESCRIPTION:${esc2(desc)}`, 'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc2(title)}`, 'TRIGGER:-PT15H', 'END:VALARM', 'END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return { text: lines.join('\r\n') + '\r\n', count: byDay.size };
+}
+
+/* --- 같이 먹여도 될까? (해열제 교차복용 안내) --- */
+const CROSS_OPTS = [
+  ['aap', '아세트아미노펜', '타이레놀·챔프(빨강)·세토펜'],
+  ['ibu', '이부프로펜', '부루펜·챔프 이부펜(파랑)'],
+  ['dexi', '덱시부프로펜', '맥시부펜'],
+  ['cold', '약국 감기약', '종합감기 시럽'],
+  ['rx', '병원 처방약', '처방 봉투 약'],
+];
+// a: 이미 먹인 약, b: 먹이려는 약. level: ok(간격 두고 가능) / no(안 됨) / same(같은 약) / check(확인 필요)
+function crossCheck(a, b) {
+  const fa = FEVER_MEDS[a], fb = FEVER_MEDS[b];
+  if (fa && fb) {
+    if (a === b) return { level: 'same', title: '같은 약이에요', lines: [`교차복용이 아니라 같은 약을 다시 먹이는 거예요. 최소 ${fb.interval}시간 간격, 24시간에 ${fb.maxCount}회까지예요.`] };
+    if (fa.group === fb.group) return { level: 'no', title: '교차복용하면 안 돼요', lines: ['이부프로펜과 덱시부프로펜은 같은 계열(소염진통제)이에요. 이름이 달라도 같은 약으로 쳐야 해요.', `먼저 먹인 약에서 ${fb.interval}시간이 지나야 다시 먹일 수 있어요.`] };
+    return { level: 'ok', title: `교차복용할 수 있어요 (${CROSS_GAP_H}시간 간격)`, lines: [`아세트아미노펜과 ${fa.group === 'nsaid' ? fa.name : fb.name}은(는) 서로 다른 계열이라, 먼저 먹인 약에서 최소 ${CROSS_GAP_H}시간 뒤에 먹일 수 있어요.`, '한 가지 약으로 열이 잘 안 떨어질 때만 써요. 처음부터 두 약을 번갈아 먹일 필요는 없어요.', '각 약의 간격(아세트아미노펜 4시간, 이부프로펜 계열 6시간)과 하루 횟수는 따로 지켜요.'] };
+  }
+  if ((a === 'cold' || b === 'cold') && (fa || fb)) return { level: 'check', title: '감기약 성분부터 확인하세요', lines: ['약국 종합감기약에는 해열 성분이 들어 있는 경우가 많아요. 상자나 라벨의 성분표를 보세요.', '아세트아미노펜이 들어 있으면 아세트아미노펜 해열제와 같은 약이에요. 함께 먹이면 양이 겹쳐요.', `이부프로펜 계열이 들어 있으면 이부·덱시부프로펜과 같은 약이고, 아세트아미노펜과는 ${CROSS_GAP_H}시간 간격으로 교차할 수 있어요.`] };
+  if ((a === 'rx' || b === 'rx') && (fa || fb)) return { level: 'check', title: '처방약에 해열제가 들었는지 확인하세요', lines: ['소아과 처방약에는 해열제가 섞여 있기도 해요. 약 봉투나 복약 안내문의 성분을 보세요.', '아세트아미노펜·이부프로펜·덱시부프로펜이 적혀 있으면 위 해열제 규칙을 그대로 따라요.', '잘 모르겠으면 약을 지은 약국에 전화해서 "해열제 따로 먹여도 되나요?"라고 물어보세요.'] };
+  if (a === b) return { level: 'check', title: '같은 종류는 한 가지만', lines: [a === 'cold' ? '감기약 두 가지를 함께 먹이면 성분이 겹치기 쉬워요. 한 가지만 먹이세요.' : '처방이 두 군데서 나왔다면 약국에 함께 보여 주고 확인하세요.'] };
+  return { level: 'check', title: '약사에게 먼저 확인하세요', lines: ['처방약과 약국 감기약은 콧물·기침 성분이 겹치는 경우가 많아요. 같이 먹이기 전에 약을 지은 약국에 확인하세요.'] };
+}
+const CROSS_LEVEL = { ok: ['가능', 'ok'], no: ['안 돼요', 'danger'], same: ['같은 약', 'warn'], check: ['확인 필요', 'warn'] };
+
 /* ---- 07-ui.js ---- */
 /* ===== 화면 상태 & 공통 컴포넌트 ===== */
 const S = {
@@ -2455,6 +2543,7 @@ function viewHealth(child) {
       <span class="small muted">${g.last ? `마지막 ${esc(recDetail(g.last).split(' · ')[0] || recTitle(g.last))}, ${ago(g.last.start)}${g.last.by && syncOn() ? ` (${esc(g.last.by)})` : ''}` : '먹인 기록 없음'}</span>
       ${g.last ? `<div class="row"><div class="bar-track grow"><div class="bar-fill" style="width:${Math.min(100, (g.count / g.max) * 100)}%;--tone:${g.count >= g.max ? 'var(--danger)' : 'var(--c-med)'}"></div></div><span class="tiny muted num">24시간 ${g.count}/${g.max}회</span></div>` : ''}
       ${!g.ready && g.last ? `<span class="tiny muted">${esc(g.reason)} 기준</span>` : ''}</div>`).join('<div class="divider"></div>')}
+    ${btn('같이 먹여도 될까? (교차복용)', 'push', { a: 'medCross', cls: 'block' })}
     <details class="more-info"><summary>간격 계산 기준</summary><p>같은 약은 아세트아미노펜 4시간, 이부프로펜 계열 6시간 간격이에요. 서로 다른 약은 2시간 이상 띄워요.</p></details></div>`;
 
   h += sectionTitle('체온 그래프');
@@ -2471,6 +2560,7 @@ function viewHealth(child) {
     ${menuItem('fire', '병원에 가야 할 때', '', 'push', 'feverGuide', 'var(--c-temp)')}
     ${menuItem('map', '가까운 소아과 찾기', '', 'push', 'nearby', 'var(--c-water)')}
     ${menuItem('med', '해열제 용량', '', 'push', 'medCalc', 'var(--c-med)')}
+    ${menuItem('med', '같이 먹여도 될까?', '해열제 교차복용', 'push', 'medCross', 'var(--c-med)')}
   </div>`;
 
   const recent = recsOfType(['temp', 'med', 'symptom', 'hospital', 'vaccine'], cid).slice(-12).reverse();
@@ -2670,6 +2760,7 @@ function scheduleView(child, kind) {
     <div class="bar-track" style="margin-top:8px"><div class="bar-fill" style="width:${(done / items.length) * 100}%"></div></div>
     <p class="small muted" style="margin:8px 0 0">${kind === 'vaccine' ? esc(VACCINE_NOTE) : '검진 시기마다 문진표 작성과 발달선별검사(K-DST)를 해요.'} 일정은 <a href="${kind === 'vaccine' ? 'https://nip.kdca.go.kr/' : 'https://www.nhis.or.kr/'}" target="_blank" rel="noopener">${kind === 'vaccine' ? '예방접종도우미' : '국민건강보험공단'}</a>에서 최종 확인하세요.</p></div>`;
   const overdue = items.filter((x) => x.status === 'overdue');
+  h += `<div style="margin-top:10px">${btn(`${ICONS.calendar || ''}<span>달력으로 보기</span>`, 'push', { a: 'healthCal', cls: 'block with-icon' })}</div>`;
   if (overdue.length >= 2) h += `<div class="notice warn spread" style="margin-top:12px"><span class="small">기록 없이 지난 일정 ${overdue.length}개. 이미 했다면 한 번에 완료로 바꿔요.</span>${btn(S.confirm === 'bulk:' + kind ? '한 번 더 누르면 완료' : '모두 완료로 표시', 'schedBulk', { a: kind, cls: 'sm' })}</div>`;
   h += `<div class="menu" style="margin-top:12px">${vis.map((x) => `<button type="button" class="sched" data-act="schedTap" data-a="${kind}" data-b="${x.key}">
       <span><span class="nm">${esc(x.name)}${x.dose ? ` ${x.dose}차` : ''}</span><br><span class="when">${x.rec ? `${fmtDot(x.rec.start)} 완료${x.rec.data?.place ? ' · ' + esc(x.rec.data.place) : ''}` : `${fmtDot(x.fromTs)} ~ ${fmtDot(x.toTs)}`}${x.note ? ` · ${esc(x.note)}` : ''}</span></span>
@@ -3265,7 +3356,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.11.1';
+const APP_VERSION = '1.12.0';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -3274,6 +3365,7 @@ const PAGES = {
   report: (c) => pageReport(c), episodes: (c) => pageEpisodes(c), episode: (c, a) => pageEpisode(c, a), family: () => pageFamily(),
   predictInfo: (c) => pagePredictInfo(c), milk: (c) => pageMilk(c),
   calendar: (c) => pageCalendar(c), sticker: (c) => pageSticker(c), book: (c) => pageBook(c), feedback: () => pageFeedback(),
+  healthCal: (c) => pageHealthCal(c), medCross: (c) => pageMedCross(c),
 };
 const NEEDS_CHILD = new Set(Object.keys(PAGES).filter((k) => !['childEdit', 'theme', 'about', 'backup', 'family', 'feedback'].includes(k)));
 
@@ -4476,6 +4568,93 @@ async function drawMemoryPoster() {
   memDraw(cv.getContext('2d'), prep, Math.min(1, prep.plan.segs[0].dur / 2));
 }
 
+
+/* ---- 21-care.js ---- */
+/* ===== 접종·검진 달력 · 같이 먹여도 될까? ===== */
+
+/* --- 접종·검진 달력 --- */
+function pageHealthCal(child) {
+  const now = Date.now(); const t = new Date(now);
+  const ym = S.form.hcYM || [t.getFullYear(), t.getMonth()];
+  const m = healthCalMonth(child, ym[0], ym[1], now);
+  const sel = S.form.hcDay != null && m.days.some((d) => d.day === S.form.hcDay) ? S.form.hcDay : (m.days.find((d) => sameDay(d.day, now)) || m.days.find((d) => d.done.length || d.starts.length) || m.days[0]).day;
+  let h = pageHead('접종·검진 달력');
+  if (m.next.length) {
+    const n0 = m.next[0];
+    h += `<div class="card hc-next"><span class="label">다음 일정</span><b>${esc(n0.name)}${n0.dose ? ` ${n0.dose}차` : ''}${m.next.length > 1 ? ` 외 ${m.next.length - 1}개` : ''}</b>
+      <span class="small muted">${n0.fromTs <= now ? `지금 할 수 있어요 · ${fmtDot(n0.toTs)}까지` : `${fmtDot(n0.fromTs)}부터 ${fmtDot(n0.toTs)}까지`}</span>
+      ${btn('날짜로 가기', 'hcGo', { a: n0.fromTs <= now ? now : n0.fromTs, cls: 'sm' })}</div>`;
+  }
+  h += `<div class="spread cal-nav">${btn(ICONS.left, 'hcMove', { a: -1, cls: 'sm icon-only', attrs: 'aria-label="이전 달"' })}<b>${ym[0]}년 ${ym[1] + 1}월</b>${btn(ICONS.right, 'hcMove', { a: 1, cls: 'sm icon-only', attrs: 'aria-label="다음 달"' })}</div>`;
+  h += `<div class="cal hc">${['일', '월', '화', '수', '목', '금', '토'].map((d) => `<span class="cal-wd">${d}</span>`).join('')}${'<span></span>'.repeat(m.lead)}`;
+  for (const d of m.days) {
+    const marks = [d.done.length ? '<i class="hc-m done"></i>' : '', d.starts.length ? '<i class="hc-m start"></i>' : '', d.ends.length ? `<i class="hc-m end${d.ends.some((x) => x.status === 'overdue') ? ' over' : ''}"></i>` : ''].join('');
+    h += `<button type="button" class="cal-day hc-day${d.open.length ? ' open' : ''}${sameDay(d.day, now) ? ' today' : ''}${sel === d.day ? ' sel' : ''}" data-act="hcPick" data-a="${d.day}" aria-label="${new Date(d.day).getDate()}일${d.done.length ? `, 완료 ${d.done.length}개` : ''}${d.starts.length ? `, 시작 ${d.starts.length}개` : ''}${d.ends.length ? `, 마감 ${d.ends.length}개` : ''}">
+      <span class="cal-n">${new Date(d.day).getDate()}</span><span class="hc-marks">${marks}</span></button>`;
+  }
+  h += `</div><div class="legend" style="margin-top:8px"><span><i class="hc-m done"></i>완료</span><span><i class="hc-m start"></i>권장 시기 시작</span><span><i class="hc-m end"></i>권장 시기 끝</span><span><i class="lg-sw hc-sw"></i>할 수 있는 기간</span></div>`;
+
+  const day = m.days.find((d) => d.day === sel);
+  if (day) {
+    const ag = ageParts(child.birth, day.day);
+    h += `<div class="day-head"><span>${fmtDate(day.day, true)}${ag.totalDays >= 0 ? ` · ${esc(ageText(child.birth, day.day))}` : ''}</span></div>`;
+    const row = (x, sub) => `<button type="button" class="sched" data-act="schedTap" data-a="${x.kind}" data-b="${x.key}">
+      <span><span class="nm">${x.kind === 'vaccine' ? '' : '<small class="muted">검진</small> '}${esc(x.name)}${x.dose ? ` ${x.dose}차` : ''}</span><br><span class="when">${sub}</span></span>${pill(SCHED_LABEL[x.status][0], SCHED_LABEL[x.status][1])}</button>`;
+    if (day.done.length) h += `<p class="small muted hc-cap">이날 한 것</p><div class="menu">${day.done.map((x) => row(x, `${fmtHM(x.rec.start)} 완료${x.rec.data?.place ? ' · ' + esc(x.rec.data.place) : ''}`)).join('')}</div>`;
+    if (day.open.length) h += `<p class="small muted hc-cap">이날 할 수 있는 일정 ${day.open.length}개</p><div class="menu">${day.open.sort((a, b) => a.toTs - b.toTs).map((x) => row(x, `${fmtDot(x.fromTs)} ~ ${fmtDot(x.toTs)}${sameDay(x.toTs, day.day) ? ' · 오늘이 마지막 날' : ''}${x.note ? ` · ${esc(x.note)}` : ''}`)).join('')}</div>`;
+    if (!day.done.length && !day.open.length) h += `<div class="card empty">이날은 접종·검진 일정이 없어요.</div>`;
+  }
+  h += `<div class="stack" style="margin-top:14px">${btn(`${ICONS.download || ''}<span>휴대폰 달력에 일정 넣기</span>`, 'hcIcs', { cls: 'block with-icon' })}
+    <p class="small muted">아직 안 한 일정을 휴대폰 기본 달력에 넣어요. 권장 시기가 시작되는 날 전날 오전 9시에 알려 줘요. 항목을 누르면 완료로 기록할 수 있어요.</p>
+    <p class="tiny muted">질병관리청 표준일정·영유아 건강검진 시기 기준이에요. 실제 일정은 예방접종도우미와 국민건강보험공단에서 확인하세요.</p></div>`;
+  return h;
+}
+ACT.hcMove = (el) => { const t = new Date(); const [y, mo] = S.form.hcYM || [t.getFullYear(), t.getMonth()]; const d = new Date(y, mo + +el.dataset.a, 1); S.form.hcYM = [d.getFullYear(), d.getMonth()]; S.form.hcDay = null; render(); };
+ACT.hcPick = (el) => { S.form.hcDay = +el.dataset.a; render(); };
+ACT.hcGo = (el) => { const d = new Date(+el.dataset.a); S.form.hcYM = [d.getFullYear(), d.getMonth()]; S.form.hcDay = dayStart(+el.dataset.a); render(); };
+ACT.hcIcs = async () => {
+  const child = activeChild(); if (!child) return;
+  const { text, count } = scheduleIcs(child);
+  if (!count) { toast('남은 일정이 없어요'); return; }
+  const res = await saveFiles([{ name: 'yugamoa-schedule.ics', blob: new Blob([text], { type: 'text/calendar' }) }], 'yugamoa-schedule.ics', { shareTitle: '접종·검진 일정' });
+  if (res === 'saved' || res === 'downloaded') toast(`일정 ${count}개를 담은 파일을 저장했어요. 파일을 열면 달력에 추가돼요`);
+  else if (res === 'failed') toast('이 화면에서는 저장할 수 없어요');
+};
+
+/* --- 같이 먹여도 될까? --- */
+function crossDefaultA(child) {
+  const last = feverMedRecs(child.id).filter((r) => Date.now() - r.start < DAY).pop();
+  return last ? last.data.ingredient : null;
+}
+function pageMedCross(child) {
+  const f = S.form.cross || (S.form.cross = { a: crossDefaultA(child), b: null });
+  const now = Date.now(); const fm = feverMedStatus(child.id, now);
+  const opts = (k, cur) => `<div class="cross-opts">${CROSS_OPTS.map(([v, l, ex]) => `<button type="button" class="cross-opt" aria-pressed="${cur === v}" data-act="crossPick" data-a="${k}" data-b="${v}"><b>${esc(l)}</b><span>${esc(ex)}</span></button>`).join('')}</div>`;
+  let h = pageHead('같이 먹여도 될까?') + `<div class="stack">`;
+  h += `<div class="card stack" style="gap:8px"><span class="label">지금 먹일 수 있는 해열제</span>${fm.groups.map((g) => `<div class="spread"><span>${esc(g.label)}<br><span class="small muted">${g.last ? `마지막 ${fmtHM(g.last.start)} (${ago(g.last.start)})` : '24시간 안에 먹인 기록 없음'}</span></span>${!g.last || g.ready ? pill('지금 가능', 'ok') : pill(`${fmtHM(g.next)}부터`, 'warn')}</div>`).join('<div class="divider"></div>')}
+    <span class="tiny muted">약 기록을 바탕으로 계산해요. 기록하지 않고 먹인 약이 있다면 반영되지 않아요.</span></div>`;
+  h += field('1. 먼저 먹인 약', opts('a', f.a));
+  h += field('2. 이제 먹이려는 약', opts('b', f.b));
+  if (f.a && f.b) {
+    const r = crossCheck(f.a, f.b); const lv = CROSS_LEVEL[r.level];
+    let when = ''; let canRec = !!FEVER_MEDS[f.b] && r.level !== 'no';
+    if (FEVER_MEDS[f.b]) {
+      const g = fm.groups.find((x) => x.group === FEVER_MEDS[f.b].group);
+      if (g && g.last) { when = g.ready ? '기록상 지금 먹일 수 있어요.' : `기록상 ${fmtHM(g.next)}부터 먹일 수 있어요 (${esc(g.reason)}).`; if (r.level === 'no') canRec = g.ready; }
+    }
+    h += `<div class="card cross-res ${lv[1]}"><div class="spread"><b>${esc(r.title)}</b>${pill(lv[0], lv[1])}</div><ul>${r.lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${when ? `<p class="cross-when">${when}</p>` : ''}</div>`;
+    if (canRec) h += btn(`${FEVER_MEDS[f.b].name} 먹인 것 기록`, 'crossRec', { a: f.b, cls: 'primary block' });
+  } else h += `<div class="card empty">두 약을 고르면 같이 먹여도 되는지 알려 줘요.</div>`;
+  h += `<details class="more-info"><summary>이런 경우는 바로 진료를 받아요</summary><p>생후 3개월 미만이 38℃ 이상일 때, 해열제를 먹여도 처지고 잘 못 먹을 때, 열이 3일 넘게 갈 때는 교차복용보다 진료가 먼저예요.</p></details>
+    <p class="tiny muted">일반적인 소아 해열제 사용 기준이에요. 의사·약사가 따로 알려 준 방법이 있으면 그걸 따르세요.</p></div>`;
+  return h;
+}
+ACT.crossPick = (el) => { const f = S.form.cross || (S.form.cross = {}); const k = el.dataset.a; f[k] = f[k] === el.dataset.b ? null : el.dataset.b; render(); };
+ACT.crossRec = (el) => {
+  const ing = el.dataset.a; const child = activeChild(); const d = newDraft('med');
+  d.data.category = '해열제'; fillMedFrom(d, lastMedLike(child.id, { ingredient: ing }), ing); d.data.ingredient = ing;
+  openEditor(d, false);
+};
 
 /* ---- 99-boot.js ---- */
 /* ===== 시작 (모든 코드가 읽힌 뒤 실행) ===== */
