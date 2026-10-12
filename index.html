@@ -979,7 +979,7 @@ const DEV_CHECKS = [
     move: ['단추 몇 개를 채워요', '한 발로 깡충 뛰어요'] },
     tips: ['보드게임처럼 차례와 규칙이 있는 놀이를 해요', '숫자·글자를 생활 속에서 자연스럽게 보여 줘요(엘리베이터 숫자, 간판)', '한 발 뛰기, 줄넘기 흉내 같은 몸 놀이를 해요'] },
 ];
-const DEV_ANS = [[2, '잘해요'], [1, '가끔·조금'], [0, '아직 못해요']];
+const DEV_ANS = [[2, '잘해요'], [1, '가끔'], [0, '아직 못해요']];
 const DEV_SOURCE = '미국 질병통제예방센터(CDC) 발달 이정표(2022)를 참고해 만든 체크리스트예요. 각 항목은 그 나이까지 또래 대부분(75% 이상)이 하는 것들이라, 못 하는 항목이 있으면 상담해 보라는 신호일 뿐 진단은 아니에요. 정확한 평가는 영유아 건강검진의 발달선별검사(K-DST)나 소아청소년과에서 받아요. 일찍 태어난 아이는 교정 월령(출산 예정일 기준)으로 보세요.';
 const DEV_COMMON_FLAG = '이미 하던 것을 갑자기 못 하게 되면(퇴행) 개월 수와 상관없이 소아청소년과 진료를 받아 보세요.';
 
@@ -2991,13 +2991,13 @@ function devView(child) {
   h += `<div class="card dev-sum" style="margin-top:10px"><div class="spread"><h2>${esc(cp.title)} 발달 체크</h2><span class="small muted">${sc.answered}/${sc.n} 답함</span></div>
     <div class="dev-verdict ${stl[1]}">${esc(stl[0])}</div>
     ${sc.domains.map((d) => `<div class="dev-dom"><span class="dev-dl">${esc(d.label)}</span><div class="bar-track grow"><div class="bar-fill" style="width:${d.max ? (d.score / d.max) * 100 : 0}%;--tone:${d.status === 'talk' ? 'var(--warn)' : d.status === 'ok' ? 'var(--ok)' : 'var(--accent)'}"></div></div><span class="dev-sc num">${d.answered ? `${d.score}/${d.max}점` : '-'}</span></div>`).join('')}
-    <p class="tiny muted" style="margin:8px 0 0">항목마다 잘해요 2점, 가끔·조금 1점, 아직 못해요 0점이에요.</p></div>`;
+    <p class="tiny muted" style="margin:8px 0 0">항목마다 잘해요 2점, 가끔 1점, 아직 못해요 0점이에요.</p></div>`;
   if (sc.status === 'talk') {
     const zeros = sc.domains.flatMap((d) => d.zero.map((t) => `${d.label}: ${t}`));
     h += `<div class="notice warn" style="margin-top:12px"><b>아직 못하는 항목이 ${zeros.length}개 있어요</b><ul class="plain small" style="margin-top:4px">${zeros.map((z) => `<li>${esc(z)}</li>`).join('')}</ul>
       <p class="small" style="margin:6px 0 0">이 나이 또래 대부분이 하는 것들이에요. 아이마다 속도가 달라 몇 주 뒤 다시 해 보면 되는 경우도 많지만, 다음 영유아 건강검진이나 소아과 진료 때 이 목록을 보여 주며 상담해 보세요.</p>
       <div style="margin-top:8px">${btn(`${ICONS.copy} 진료 때 보여 줄 내용 복사`, 'devCopy', { cls: 'sm' })}</div><textarea id="dev-out" class="input" readonly hidden></textarea></div>`;
-  } else if (sc.status === 'watch') h += `<div class="notice" style="margin-top:12px">"가끔·조금"인 항목은 아래 놀이로 함께 연습해 봐요. 한두 달 뒤 다시 확인해 보세요.</div>`;
+  } else if (sc.status === 'watch') h += `<div class="notice" style="margin-top:12px">"가끔"인 항목은 아래 놀이로 함께 연습해 봐요. 한두 달 뒤 다시 확인해 보세요.</div>`;
   else if (sc.status === 'ok') h += `<div class="notice ok" style="margin-top:12px">이 시기에 또래가 하는 것들을 모두 잘하고 있어요. 다음 시기(${esc(DEV_CHECKS[Math.min(idx + 1, DEV_CHECKS.length - 1)].title)})도 미리 볼 수 있어요.</div>`;
   // 영역별 항목
   for (const d of sc.domains) {
@@ -3574,7 +3574,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.13.1';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
