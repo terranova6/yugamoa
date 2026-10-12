@@ -548,6 +548,26 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .cross-res.danger { box-shadow: inset 4px 0 0 var(--danger); }
 .cross-res.warn { box-shadow: inset 4px 0 0 var(--c-symptom); }
 .cross-when { margin: 8px 0 0; font-weight: 600; font-size: .9rem; }
+.cross-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+.cross-dot.aap { background: #e2502a; } .cross-dot.ibu { background: #2f6fd6; } .cross-dot.dexi { background: #7a58c2; } .cross-dot.cold { background: #c79400; } .cross-dot.rx { background: #16958a; }
+.cross-st { display: grid; gap: 5px; }
+.cross-head { display: flex; gap: 12px; align-items: center; }
+.cross-head > div { display: grid; gap: 2px; } .cross-head b { font-size: 1.08rem; line-height: 1.35; }
+.cross-ic { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 1.3rem; font-weight: 800; color: #fff; background: var(--muted); }
+.cross-ic.ok { background: var(--ok); } .cross-ic.danger { background: var(--danger); } .cross-ic.warn { background: var(--warn); }
+.cross-time { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--warn-soft); display: grid; gap: 2px; }
+.cross-time b { font-size: 1.25rem; } .cross-time span { font-size: .84rem; color: var(--muted); }
+.cross-time.ok { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); } .cross-time.ok b { color: var(--ok); }
+.cross-line { margin-top: 8px; display: grid; gap: 4px; }
+.cross-hint { margin: 12px 0 0; font-size: .88rem; color: var(--muted); }
+.cross-sec { margin-top: 14px; } .cross-sec .label { display: block; margin-bottom: 4px; }
+.cross-sec ul, .cross-sec ol { margin: 0; padding-left: 20px; display: grid; gap: 5px; font-size: .92rem; line-height: 1.5; }
+.cross-table table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.cross-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: .74rem; padding: 0 4px 6px; }
+.cross-table td { padding: 8px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+.cross-rules { display: grid; gap: 6px; margin-top: 10px; font-size: .82rem; }
+.cross-ex { margin: 6px 0; padding-left: 20px; display: grid; gap: 4px; font-size: .88rem; }
+.cross-table td.num, .cross-table th:nth-child(n+2) { text-align: center; white-space: nowrap; width: 18%; }
 </style>
 </head>
 <body>
@@ -1769,20 +1789,54 @@ const CROSS_OPTS = [
   ['cold', '약국 감기약', '종합감기 시럽'],
   ['rx', '병원 처방약', '처방 봉투 약'],
 ];
-// a: 이미 먹인 약, b: 먹이려는 약. level: ok(간격 두고 가능) / no(안 됨) / same(같은 약) / check(확인 필요)
+const CROSS_NAME = { aap: '아세트아미노펜', ibu: '이부프로펜', dexi: '덱시부프로펜', cold: '약국 감기약', rx: '병원 처방약' };
+// a: 이미 먹인 약, b: 먹이려는 약
+// level: ok(간격 두고 가능) / no(교차 안 됨) / same(같은 약) / check(확인 필요). gapH: a를 먹인 뒤 b까지 최소 간격(시간)
 function crossCheck(a, b) {
   const fa = FEVER_MEDS[a], fb = FEVER_MEDS[b];
+  const A = CROSS_NAME[a], B = CROSS_NAME[b];
   if (fa && fb) {
-    if (a === b) return { level: 'same', title: '같은 약이에요', lines: [`교차복용이 아니라 같은 약을 다시 먹이는 거예요. 최소 ${fb.interval}시간 간격, 24시간에 ${fb.maxCount}회까지예요.`] };
-    if (fa.group === fb.group) return { level: 'no', title: '교차복용하면 안 돼요', lines: ['이부프로펜과 덱시부프로펜은 같은 계열(소염진통제)이에요. 이름이 달라도 같은 약으로 쳐야 해요.', `먼저 먹인 약에서 ${fb.interval}시간이 지나야 다시 먹일 수 있어요.`] };
-    return { level: 'ok', title: `교차복용할 수 있어요 (${CROSS_GAP_H}시간 간격)`, lines: [`아세트아미노펜과 ${fa.group === 'nsaid' ? fa.name : fb.name}은(는) 서로 다른 계열이라, 먼저 먹인 약에서 최소 ${CROSS_GAP_H}시간 뒤에 먹일 수 있어요.`, '한 가지 약으로 열이 잘 안 떨어질 때만 써요. 처음부터 두 약을 번갈아 먹일 필요는 없어요.', '각 약의 간격(아세트아미노펜 4시간, 이부프로펜 계열 6시간)과 하루 횟수는 따로 지켜요.'] };
+    if (a === b) {
+      const other = fb.group === 'aap' ? '이부프로펜·덱시부프로펜' : '아세트아미노펜';
+      return { level: 'same', verdict: `같은 약이에요. ${fb.interval}시간 간격을 지켜요`, gapH: fb.interval,
+        why: ['교차복용이 아니라 같은 약을 한 번 더 먹이는 거예요.', `${B}은 한 번 먹으면 효과가 ${fb.interval}시간쯤 가요. 그 전에 또 먹이면 양이 많아져요.`],
+        how: [`마지막으로 먹인 시각에서 ${fb.interval}시간이 지나야 다시 먹일 수 있어요.`, `24시간 동안 ${fb.maxCount}회까지만 먹여요.`, `그 전에 열이 안 떨어져 아이가 힘들어하면, 다른 계열인 ${other}을 2시간 간격으로 먹일 수 있어요.`],
+        caution: ['한 번 먹일 양은 몸무게에 맞춰요. "해열제 용량"에서 확인할 수 있어요.'] };
+    }
+    if (fa.group === fb.group) return { level: 'no', verdict: '교차복용하면 안 돼요. 같은 계열이에요', gapH: fb.interval,
+      why: ['이부프로펜과 덱시부프로펜은 이름은 달라도 같은 계열(소염진통제)이에요.', '번갈아 먹이면 같은 약을 짧은 간격으로 두 번 먹이는 것과 같아서, 위장이나 콩팥에 부담이 될 수 있어요.'],
+      how: [`먼저 먹인 ${A}에서 ${fb.interval}시간이 지나야 ${B}을 먹일 수 있어요.`, '그 사이 열이 안 떨어져 아이가 힘들어하면, 다른 계열인 아세트아미노펜(타이레놀·챔프 빨강 등)을 먼저 먹인 약에서 2시간 뒤에 먹일 수 있어요.'],
+      caution: ['챔프 "이부펜"(파랑)과 맥시부펜은 헷갈리기 쉬워요. 약통에 적힌 성분명을 꼭 보세요.'] };
+    return { level: 'ok', verdict: `먹여도 돼요. ${A}을 먹이고 ${CROSS_GAP_H}시간 뒤부터예요`, gapH: CROSS_GAP_H,
+      why: [`${A}과 ${B}은 열을 내리는 방식이 다른 약(다른 계열)이에요.`, `그래서 한 약을 먹였는데도 열이 안 떨어지면, ${CROSS_GAP_H}시간 뒤에 다른 계열 약을 먹일 수 있어요. 이것을 교차복용이라고 해요.`],
+      how: [`${A}을 먹이고 1시간쯤 뒤에 체온을 다시 재요. 약이 듣기까지 30분~1시간 걸려요.`, `여전히 열이 높고 아이가 힘들어하면, 먹인 지 ${CROSS_GAP_H}시간이 지난 뒤 ${B}을 먹여요.`, '그다음부터도 같은 약끼리는 간격을 따로 지켜요: 아세트아미노펜 4시간, 이부프로펜 계열 6시간.'],
+      caution: ['두 약을 한꺼번에 먹이지 마세요.', '열을 꼭 정상으로 떨어뜨릴 필요는 없어요. 아이가 잘 놀고 잘 먹으면 한 가지 약으로 충분해요.', '하루 횟수: 아세트아미노펜 5회, 이부프로펜 계열 4회까지.'] };
   }
-  if ((a === 'cold' || b === 'cold') && (fa || fb)) return { level: 'check', title: '감기약 성분부터 확인하세요', lines: ['약국 종합감기약에는 해열 성분이 들어 있는 경우가 많아요. 상자나 라벨의 성분표를 보세요.', '아세트아미노펜이 들어 있으면 아세트아미노펜 해열제와 같은 약이에요. 함께 먹이면 양이 겹쳐요.', `이부프로펜 계열이 들어 있으면 이부·덱시부프로펜과 같은 약이고, 아세트아미노펜과는 ${CROSS_GAP_H}시간 간격으로 교차할 수 있어요.`] };
-  if ((a === 'rx' || b === 'rx') && (fa || fb)) return { level: 'check', title: '처방약에 해열제가 들었는지 확인하세요', lines: ['소아과 처방약에는 해열제가 섞여 있기도 해요. 약 봉투나 복약 안내문의 성분을 보세요.', '아세트아미노펜·이부프로펜·덱시부프로펜이 적혀 있으면 위 해열제 규칙을 그대로 따라요.', '잘 모르겠으면 약을 지은 약국에 전화해서 "해열제 따로 먹여도 되나요?"라고 물어보세요.'] };
-  if (a === b) return { level: 'check', title: '같은 종류는 한 가지만', lines: [a === 'cold' ? '감기약 두 가지를 함께 먹이면 성분이 겹치기 쉬워요. 한 가지만 먹이세요.' : '처방이 두 군데서 나왔다면 약국에 함께 보여 주고 확인하세요.'] };
-  return { level: 'check', title: '약사에게 먼저 확인하세요', lines: ['처방약과 약국 감기약은 콧물·기침 성분이 겹치는 경우가 많아요. 같이 먹이기 전에 약을 지은 약국에 확인하세요.'] };
+  const fever = fa ? a : fb ? b : null;
+  if ((a === 'cold' || b === 'cold') && fever) return { level: 'check', verdict: '감기약 성분부터 확인하세요', gapH: null,
+    why: ['약국 종합감기약에는 해열 성분이 들어 있는 경우가 많아요. 모르고 해열제와 같이 먹이면 같은 성분을 두 번 먹이게 돼요.'],
+    how: ['감기약 상자나 라벨의 "성분" 칸을 보세요.', '아세트아미노펜이 있으면: 아세트아미노펜 해열제와 같은 약이에요. 4시간 간격을 지켜요.', '이부프로펜·덱시부프로펜이 있으면: 그 계열 해열제와 같은 약이에요. 6시간 간격을 지켜요.', '성분을 확인했으면 위에서 해당 성분을 골라 다시 확인해 보세요.'],
+    caution: ['해열 성분이 없더라도 약사에게 "해열제랑 같이 먹여도 되나요?"라고 한 번 물어보면 안심이에요.'] };
+  if ((a === 'rx' || b === 'rx') && fever) return { level: 'check', verdict: '처방약에 해열제가 들었는지 확인하세요', gapH: null,
+    why: ['소아과 처방약에는 해열제가 섞여 있기도 해요. 이 경우 따로 해열제를 먹이면 같은 성분이 겹쳐요.'],
+    how: ['약 봉투나 복약 안내문의 약 이름·성분을 보세요.', '아세트아미노펜·이부프로펜·덱시부프로펜이 적혀 있으면 위에서 그 성분을 골라 다시 확인해 보세요.', '잘 모르겠으면 약을 지은 약국에 전화해서 "해열제 따로 먹여도 되나요?"라고 물어보세요.'],
+    caution: ['처방받을 때 "열 나면 해열제 따로 먹여도 되나요?"라고 미리 물어 두면 편해요.'] };
+  if (a === b) return { level: 'check', verdict: '같은 종류는 한 가지만 먹여요', gapH: null,
+    why: [a === 'cold' ? '감기약 두 가지는 성분(해열·콧물·기침)이 겹치기 쉬워요.' : '다른 병원에서 받은 처방약은 성분이 겹칠 수 있어요.'],
+    how: [a === 'cold' ? '한 가지만 골라 먹이세요.' : '두 처방약을 약국에 함께 보여 주고 같이 먹여도 되는지 확인하세요.'], caution: [] };
+  return { level: 'check', verdict: '약사에게 먼저 확인하세요', gapH: null,
+    why: ['처방약과 약국 감기약은 콧물·기침 성분이 겹치는 경우가 많아요.'],
+    how: ['같이 먹이기 전에 약을 지은 약국에 두 약을 보여 주고 확인하세요.', '처방약을 먹는 동안에는 약국 감기약을 따로 먹이지 않는 게 보통이에요.'], caution: [] };
 }
-const CROSS_LEVEL = { ok: ['가능', 'ok'], no: ['안 돼요', 'danger'], same: ['같은 약', 'warn'], check: ['확인 필요', 'warn'] };
+const CROSS_LEVEL = { ok: ['먹여도 돼요', 'ok'], no: ['안 돼요', 'danger'], same: ['같은 약', 'warn'], check: ['확인 필요', 'warn'] };
+// 먼저 먹인 시각(aAt)과 기록을 합쳐 b를 먹일 수 있는 시각
+function crossReadyAt(a, b, aAt, status) {
+  const r = crossCheck(a, b); if (r.gapH == null) return null;
+  let at = aAt != null ? aAt + r.gapH * HOUR : 0; let reason = aAt != null ? `${CROSS_NAME[a]}에서 ${r.gapH}시간` : '';
+  const g = status && FEVER_MEDS[b] ? status.groups.find((x) => x.group === FEVER_MEDS[b].group) : null;
+  if (g && g.last && g.next > at) { at = g.next; reason = g.reason; }
+  return { at, reason };
+}
 
 /* ---- 07-ui.js ---- */
 /* ===== 화면 상태 & 공통 컴포넌트 ===== */
@@ -3356,7 +3410,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -4622,34 +4676,78 @@ ACT.hcIcs = async () => {
 };
 
 /* --- 같이 먹여도 될까? --- */
-function crossDefaultA(child) {
-  const last = feverMedRecs(child.id).filter((r) => Date.now() - r.start < DAY).pop();
-  return last ? last.data.ingredient : null;
+function crossLastRec(child, ing) {
+  const m = FEVER_MEDS[ing]; if (!m) return null;
+  const l = feverMedRecs(child.id).filter((r) => r.data.ingredient === ing && Date.now() - r.start < DAY && r.start <= Date.now());
+  return l[l.length - 1] || null;
 }
+function crossDefault(child) {
+  const last = feverMedRecs(child.id).filter((r) => Date.now() - r.start < DAY && r.start <= Date.now()).pop();
+  return last ? { a: last.data.ingredient, b: null, when: 'rec' } : { a: null, b: null, when: null };
+}
+const CROSS_AGO = [[0, '방금'], [1, '1시간 전'], [2, '2시간 전'], [3, '3시간 전'], [4, '4시간 전'], [6, '6시간 넘게']];
+function leftText(ms) { if (ms <= 0) return ''; const h = Math.floor(ms / HOUR), m = Math.ceil((ms % HOUR) / MIN); return `${h ? h + '시간 ' : ''}${m ? m + '분' : ''}`.trim() + ' 남았어요'; }
 function pageMedCross(child) {
-  const f = S.form.cross || (S.form.cross = { a: crossDefaultA(child), b: null });
+  const f = S.form.cross || (S.form.cross = crossDefault(child));
   const now = Date.now(); const fm = feverMedStatus(child.id, now);
-  const opts = (k, cur) => `<div class="cross-opts">${CROSS_OPTS.map(([v, l, ex]) => `<button type="button" class="cross-opt" aria-pressed="${cur === v}" data-act="crossPick" data-a="${k}" data-b="${v}"><b>${esc(l)}</b><span>${esc(ex)}</span></button>`).join('')}</div>`;
+  const opts = (k, cur) => `<div class="cross-opts">${CROSS_OPTS.map(([v, l, ex]) => `<button type="button" class="cross-opt" aria-pressed="${cur === v}" data-act="crossPick" data-a="${k}" data-b="${v}"><b><i class="cross-dot ${v}"></i>${esc(l)}</b><span>${esc(ex)}</span></button>`).join('')}</div>`;
   let h = pageHead('같이 먹여도 될까?') + `<div class="stack">`;
-  h += `<div class="card stack" style="gap:8px"><span class="label">지금 먹일 수 있는 해열제</span>${fm.groups.map((g) => `<div class="spread"><span>${esc(g.label)}<br><span class="small muted">${g.last ? `마지막 ${fmtHM(g.last.start)} (${ago(g.last.start)})` : '24시간 안에 먹인 기록 없음'}</span></span>${!g.last || g.ready ? pill('지금 가능', 'ok') : pill(`${fmtHM(g.next)}부터`, 'warn')}</div>`).join('<div class="divider"></div>')}
-    <span class="tiny muted">약 기록을 바탕으로 계산해요. 기록하지 않고 먹인 약이 있다면 반영되지 않아요.</span></div>`;
+  // 지금 상태
+  h += `<div class="card stack" style="gap:10px"><span class="label">지금 먹일 수 있는 해열제</span>${fm.groups.map((g) => {
+    const rule = g.group === 'aap' ? FEVER_MEDS.aap : FEVER_MEDS.ibu;
+    const span = g.last ? Math.max(1, g.next - g.last.start) : 1; const pct = g.last ? Math.min(100, ((now - g.last.start) / span) * 100) : 100;
+    return `<div class="cross-st"><div class="spread"><b>${esc(g.label)}</b>${!g.last || g.ready ? pill('지금 가능', 'ok') : pill(`${fmtHM(g.next)}부터`, 'warn')}</div>
+      ${g.last ? `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;--tone:${g.ready ? 'var(--ok)' : 'var(--c-symptom)'}"></div></div>
+      <span class="small muted">마지막 ${fmtHM(g.last.start)} (${ago(g.last.start)})${g.ready ? '' : ` · ${leftText(g.next - now)}`} · 24시간 ${g.count}/${rule.maxCount}회</span>` : '<span class="small muted">24시간 안에 먹인 기록이 없어요</span>'}</div>`;
+  }).join('')}<span class="tiny muted">약 기록으로 계산해요. 기록하지 않고 먹인 약은 반영되지 않아요.</span></div>`;
+  // 1. 먼저 먹인 약 + 시각
   h += field('1. 먼저 먹인 약', opts('a', f.a));
+  if (f.a) {
+    const rec = crossLastRec(child, f.a);
+    h += field('언제 먹였나요?', `<div class="chips">${rec ? chip(`기록: ${fmtHM(rec.start)}`, f.when === 'rec', 'crossWhen', 'rec', '', 'var(--c-med)') : ''}${CROSS_AGO.map(([v, l]) => chip(l, f.when === String(v), 'crossWhen', v, '', 'var(--c-med)')).join('')}</div>`);
+  }
+  // 2. 먹이려는 약
   h += field('2. 이제 먹이려는 약', opts('b', f.b));
   if (f.a && f.b) {
     const r = crossCheck(f.a, f.b); const lv = CROSS_LEVEL[r.level];
-    let when = ''; let canRec = !!FEVER_MEDS[f.b] && r.level !== 'no';
-    if (FEVER_MEDS[f.b]) {
-      const g = fm.groups.find((x) => x.group === FEVER_MEDS[f.b].group);
-      if (g && g.last) { when = g.ready ? '기록상 지금 먹일 수 있어요.' : `기록상 ${fmtHM(g.next)}부터 먹일 수 있어요 (${esc(g.reason)}).`; if (r.level === 'no') canRec = g.ready; }
+    const rec = crossLastRec(child, f.a);
+    const aAt = f.when === 'rec' ? rec?.start ?? null : f.when != null ? now - +f.when * HOUR : null;
+    const ready = crossReadyAt(f.a, f.b, aAt, fm);
+    const icon = { ok: '✓', no: '✕', same: '=', check: '!' }[r.level];
+    h += `<div class="card cross-res ${lv[1]}"><div class="cross-head"><span class="cross-ic ${lv[1]}" aria-hidden="true">${icon}</span><div><span class="tiny muted">${esc(CROSS_NAME[f.a])} → ${esc(CROSS_NAME[f.b])}</span><b>${esc(r.verdict)}</b></div></div>`;
+    if (r.gapH != null) {
+      if (ready && ready.at) {
+        const ok = ready.at <= now;
+        h += `<div class="cross-time ${ok ? 'ok' : ''}"><b>${ok ? '지금 먹여도 돼요' : `${fmtHM(ready.at)}부터 먹일 수 있어요`}</b><span>${ok ? `${esc(ready.reason)} 지났어요` : `${leftText(ready.at - now)} · ${esc(ready.reason)} 기준`}</span></div>`;
+        if (aAt != null && !ok) { const p = Math.max(0, Math.min(100, ((now - aAt) / (ready.at - aAt)) * 100));
+          h += `<div class="cross-line"><div class="bar-track"><div class="bar-fill" style="width:${p}%;--tone:var(--c-symptom)"></div></div><div class="spread tiny muted"><span>${fmtHM(aAt)} ${esc(CROSS_NAME[f.a])}</span><span>지금 ${fmtHM(now)}</span><span>${fmtHM(ready.at)} 가능</span></div></div>`; }
+      } else h += `<p class="cross-hint">위에서 <b>언제 먹였는지</b> 고르면 몇 시부터 먹일 수 있는지 알려 드려요.</p>`;
     }
-    h += `<div class="card cross-res ${lv[1]}"><div class="spread"><b>${esc(r.title)}</b>${pill(lv[0], lv[1])}</div><ul>${r.lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${when ? `<p class="cross-when">${when}</p>` : ''}</div>`;
+    const sec = (t, l, ol) => l.length ? `<div class="cross-sec"><span class="label">${t}</span><${ol ? 'ol' : 'ul'}>${l.map((x) => `<li>${esc(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}></div>` : '';
+    h += sec('왜 그런가요?', r.why) + sec('이렇게 하세요', r.how, true) + sec('주의하세요', r.caution) + `</div>`;
+    const canRec = FEVER_MEDS[f.b] && r.level !== 'check' && (!ready || !ready.at || ready.at <= now);
     if (canRec) h += btn(`${FEVER_MEDS[f.b].name} 먹인 것 기록`, 'crossRec', { a: f.b, cls: 'primary block' });
-  } else h += `<div class="card empty">두 약을 고르면 같이 먹여도 되는지 알려 줘요.</div>`;
-  h += `<details class="more-info"><summary>이런 경우는 바로 진료를 받아요</summary><p>생후 3개월 미만이 38℃ 이상일 때, 해열제를 먹여도 처지고 잘 못 먹을 때, 열이 3일 넘게 갈 때는 교차복용보다 진료가 먼저예요.</p></details>
+    else if (FEVER_MEDS[f.b] && ready && ready.at > now) h += `<p class="small muted" style="text-align:center">${fmtHM(ready.at)}이 지나면 여기서 바로 기록할 수 있어요.</p>`;
+  } else h += `<div class="card empty">두 약을 고르면 같이 먹여도 되는지, 몇 시부터 먹일 수 있는지 알려 줘요.</div>`;
+  // 한눈에 보기
+  h += sectionTitle('해열제 한눈에 보기');
+  h += `<div class="card cross-table"><table><thead><tr><th>성분 · 계열</th><th>같은 약<br>간격</th><th>하루<br>최대</th></tr></thead><tbody>
+    ${['aap', 'ibu', 'dexi'].map((k) => { const m = FEVER_MEDS[k]; return `<tr><td><b><i class="cross-dot ${k}"></i>${esc(m.name)}</b> <span class="tiny muted">${m.group === 'aap' ? '해열진통제' : '소염진통제'}</span><br><span class="tiny muted">${esc(m.ex)}</span></td><td class="num">${m.interval}시간</td><td class="num">${m.maxCount}회</td></tr>`; }).join('')}</tbody></table>
+    <div class="cross-rules"><span>${pill('교차 가능', 'ok')} 아세트아미노펜 ↔ 이부프로펜·덱시부프로펜 (2시간 간격)</span><span>${pill('교차 안 됨', 'danger')} 이부프로펜 ↔ 덱시부프로펜 (같은 계열)</span></div></div>`;
+  h += `<details class="more-info"><summary>교차복용 예시 시간표</summary><ol class="cross-ex">
+    <li><b>10:00</b> 아세트아미노펜 먹임</li><li><b>11:00</b> 체온 다시 재기. 여전히 높고 아이가 힘들어함</li><li><b>12:00</b> 이부프로펜 먹일 수 있음 (다른 계열, 2시간 뒤)</li>
+    <li><b>14:00</b> 아세트아미노펜 다시 먹일 수 있음 (같은 약 4시간)</li><li><b>18:00</b> 이부프로펜 다시 먹일 수 있음 (같은 약 6시간)</li></ol>
+    <p>열이 내려가 아이가 편해 보이면 다음 약은 먹이지 않아도 돼요. 시간이 됐다고 꼭 먹여야 하는 건 아니에요.</p></details>
+    <details class="more-info"><summary>이런 경우는 교차복용보다 진료가 먼저예요</summary><p>생후 3개월 미만이 38℃ 이상일 때, 해열제를 먹여도 처지고 잘 못 먹을 때, 열이 3일 넘게 갈 때, 숨쉬기 힘들어하거나 경련을 할 때는 바로 진료를 받아요.</p></details>
     <p class="tiny muted">일반적인 소아 해열제 사용 기준이에요. 의사·약사가 따로 알려 준 방법이 있으면 그걸 따르세요.</p></div>`;
   return h;
 }
-ACT.crossPick = (el) => { const f = S.form.cross || (S.form.cross = {}); const k = el.dataset.a; f[k] = f[k] === el.dataset.b ? null : el.dataset.b; render(); };
+ACT.crossPick = (el) => {
+  const f = S.form.cross || (S.form.cross = {}); const k = el.dataset.a; f[k] = f[k] === el.dataset.b ? null : el.dataset.b;
+  if (k === 'a') { const child = activeChild(); f.when = f.a && crossLastRec(child, f.a) ? 'rec' : null; }
+  render();
+};
+ACT.crossWhen = (el) => { const f = S.form.cross; f.when = f.when === el.dataset.a ? null : el.dataset.a; render(); };
 ACT.crossRec = (el) => {
   const ing = el.dataset.a; const child = activeChild(); const d = newDraft('med');
   d.data.category = '해열제'; fillMedFrom(d, lastMedLike(child.id, { ingredient: ing }), ing); d.data.ingredient = ing;
