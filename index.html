@@ -630,6 +630,8 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .drug-head { width: 100%; display: flex; gap: 8px; align-items: center; text-align: left; border: 0; background: var(--surface); padding: 10px 12px; font: inherit; color: var(--ink); }
 .drug-body { display: grid; gap: 10px; padding: 10px 12px 12px; background: var(--bg); }
 .pre { white-space: pre-line; margin: 0; }
+.near-more{margin-top:6px}
+.near-more summary{cursor:pointer;color:var(--accent);padding:4px 0}
 </style>
 </head>
 <body>
@@ -2026,6 +2028,25 @@ const OPEN_RANK = { open: 0, closing: 1, before: 2, unknown: 3, closed: 4 };
 // 응급실 병상 값: 숫자면 그대로, 0 이하면 "여유 없음"
 function bedInfo(v) { const n = parseInt(v, 10); if (!Number.isFinite(n)) return null; return { n, full: n <= 0 }; }
 // 기준 시각 "20261017101500" → 10:15
+/* 중증질환 수용 가능 여부 — 국립중앙의료원 응급의료기관 정보 조회 서비스 기술문서(getSrsillDissAceptncPosblInfoInqire) 기준 */
+const SEVERE = [
+  [10, '장중첩·장폐색', '영유아', true, 10], [12, '위장관 응급내시경', '영유아', true, 12], [14, '기관지 응급내시경', '영유아', true, 14],
+  [27, '영상의학 혈관중재 시술', '영유아', true, 27], [15, '저체중 출생아 집중치료', '신생아', true, 15],
+  [28, '응급실 진료(중증 선별)', '', false], [1, '심근경색 재관류 시술', '', false], [2, '뇌경색 재관류 시술', '', false],
+  [3, '거미막하출혈 수술', '뇌출혈', false], [4, '거미막하출혈 외 뇌출혈 수술', '뇌출혈', false], [5, '흉부 대동맥 응급', '', false], [6, '복부 대동맥 응급', '', false],
+  [7, '담낭질환', '담낭·담관', false], [8, '담도 포함 질환', '담낭·담관', false], [9, '복부 응급수술(외상 아님)', '', false],
+  [11, '위장관 응급내시경', '성인', false], [13, '기관지 응급내시경', '성인', false],
+  [16, '분만', '산부인과', false], [17, '산과 수술', '산부인과', false], [18, '부인과 수술', '산부인과', false],
+  [19, '중증화상 전문치료', '', false], [20, '손·발가락 접합', '사지접합', false], [21, '손·발가락 외 사지접합', '사지접합', false],
+  [22, '응급투석(HD)', '', false], [23, '응급투석(CRRT)', '', false], [24, '정신과 응급 폐쇄병동 입원', '', false], [25, '안과 응급수술', '', false], [26, '영상의학 혈관중재 시술', '성인', false],
+].map(([n, name, group, kid, msg]) => ({ n, key: `MKioskTy${n}`, name, group, kid, msg: msg ? `MKioskTy${msg}Msg` : '' }));
+// 'Y' → yes, '불가능'/'N' → no, 그 밖(정보미제공·빈값) → unknown
+const severeVal = (v) => { const t = String(v ?? '').trim(); return t === 'Y' ? 'yes' : (t === 'N' || t === '불가능') ? 'no' : 'unknown'; };
+const severeNote = (v) => { const t = String(v || '').trim(); const m = t.match(/^(\d+)\s*day$/i); return m ? `생후 ${m[1]}일부터` : t.replace(/체중상관없음/, '체중 상관없음'); };
+function severeList(row) {
+  if (!row) return [];
+  return SEVERE.map((d) => ({ ...d, state: severeVal(row[d.key] ?? row[d.key.toLowerCase()]), note: d.msg ? severeNote(row[d.msg]) : '' }));
+}
 const egenTime = (v) => { const m = String(v || '').match(/^\d{8}(\d{2})(\d{2})/); return m ? `${m[1]}:${m[2]}` : ''; };
 
 /* --- 약 이름 검색 결과 → 성분 · 해열제 계열 판단 (식약처 데이터) --- */
@@ -3657,7 +3678,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.17.1';
+const APP_VERSION = '1.18.0';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -5109,12 +5130,14 @@ async function nearLoadTab(tab) {
   try {
     const { lat, lon } = N.pos; const now = Date.now();
     if (tab === 'er') {
-      const [list, beds] = await Promise.all([
+      const [list, beds, sev] = await Promise.all([
         careFetch('er-near', { WGS84_LAT: lat, WGS84_LON: lon, numOfRows: 15 }),
         N.region ? careFetch('er-beds', { STAGE1: N.region.sido, numOfRows: 300 }).catch(() => []) : Promise.resolve([]),
+        N.region ? careFetch('er-severe', { STAGE1: N.region.sido, numOfRows: 300 }).catch(() => []) : Promise.resolve([]),
       ]);
       const bed = Object.fromEntries(beds.map((b) => [b.hpid, b]));
-      N.data.er = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: bed[x.hpid]?.dutyTel3 || x.dutyTel1, telMain: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), kind: x.dutyDivName, bed: bed[x.hpid] || null }))
+      const sevRow = Object.fromEntries((sev || []).map((r) => [r.hpid, r]));
+      N.data.er = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: bed[x.hpid]?.dutyTel3 || x.dutyTel1, telMain: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), kind: x.dutyDivName, bed: bed[x.hpid] || null, sev: severeList(sevRow[x.hpid]) }))
         .sort((a, b) => a.km - b.km);
     } else if (tab === 'ped') {
       if (!N.region) throw new Error('지역을 확인하지 못했어요');
@@ -5180,6 +5203,14 @@ function nearDetailHtml(tab, x) {
     const ok = ER_EQUIP.filter(([k]) => x.bed[k] === 'Y').map(([, l]) => l);
     h += sec('지금 쓸 수 있는 장비', ok.length ? `<div class="near-tags">${ok.map((l) => `<span class="tag">${esc(l)}</span>`).join('')}</div><span class="tiny muted">병원이 입력한 실시간 정보예요</span>` : '<p class="small muted">입력된 정보가 없어요</p>');
   }
+  if (tab === 'er' && x.sev?.length && x.sev.some((d) => d.state !== 'unknown')) {
+    const ST = { yes: ['가능', 'ok'], no: ['불가', 'danger'], unknown: ['정보 없음', ''] };
+    const row = (d) => `<tr${d.kid ? ' class="hi"' : ''}><td>${esc(d.group ? `[${d.group}] ` : '')}${esc(d.name)}${d.note && d.state === 'yes' ? `<br><span class="tiny muted">가능 연령·체중: ${esc(d.note)}</span>` : ''}</td><td class="num">${pill(ST[d.state][0], ST[d.state][1])}</td></tr>`;
+    const kids = x.sev.filter((d) => d.kid); const adults = x.sev.filter((d) => !d.kid && d.state !== 'unknown');
+    h += sec('중증질환 수용 가능 여부', `<table class="near-tbl"><thead><tr><th>아이 관련 중증질환</th><th class="num">수용</th></tr></thead><tbody>${kids.map(row).join('')}</tbody></table>`
+      + (adults.length ? `<details class="near-more"><summary class="small">다른 중증질환 ${adults.length}가지 보기</summary><table class="near-tbl"><tbody>${adults.map(row).join('')}</tbody></table></details>` : '')
+      + `<span class="tiny muted">병원이 입력한 정보예요. 바뀔 수 있으니 출발 전에 전화로 확인해 주세요</span>`);
+  }
   // 특수진료장비
   const eq = (hira?.equip || []).map((it) => ({ name: pickNm(it), n: pickCnt(it, 'oftCnt') })).filter((d) => d.name);
   h += sec('특수진료장비', eq.length ? table(['특수진료장비', '장비 수'], eq.map((d) => ({ cells: [d.name, d.n != null ? String(d.n) : '-'] }))) : '');
@@ -5215,11 +5246,13 @@ ACT.nearMore = (el) => {
 const nightEnd = (pair) => { if (!pair) return false; const a = hhmmMin(pair[0]), b = hhmmMin(pair[1]); return b != null && (b >= 20 * 60 || (a != null && b < a)); };
 const NEAR_FILTERS = {
   er: [['kid', '소아 병상 있음', (x) => bedInfo(x.bed?.hv28)?.n > 0], ['room', '응급실 병상 여유', (x) => bedInfo(x.bed?.hvec)?.n > 0],
-    ['center', '응급의료센터', (x) => /센터/.test(x.kind || '')], ['ct', 'CT 가능', (x) => x.bed?.hvctayn === 'Y'], ['venti', '소아 인공호흡기', (x) => x.bed?.hvventisoayn === 'Y']],
+    ['center', '응급의료센터', (x) => /센터/.test(x.kind || '')], ['ct', 'CT 가능', (x) => x.bed?.hvctayn === 'Y'], ['venti', '소아 인공호흡기', (x) => x.bed?.hvventisoayn === 'Y'],
+    ['intus', '영유아 장중첩·장폐색', (x) => sevYes(x, 10)], ['scope', '영유아 응급내시경', (x) => sevYes(x, 12) || sevYes(x, 14)], ['lbw', '저체중 출생아 치료', (x) => sevYes(x, 15)]],
   ped: [['open', '지금 진료 중', (x) => x.open.state === 'open' || x.open.state === 'closing'], ['night', '오늘 밤 8시 이후', (x) => nightEnd(x.week?.[careDayNo()])],
     ['sat', '토요일 진료', (x) => !!x.week?.[6]], ['sun', '일요일 진료', (x) => !!x.week?.[7]], ['holi', '공휴일 진료', (x) => !!x.week?.[8]], ['er', '응급실 있음', (x) => x.er]],
   pharm: [['open', '지금 문 연 곳', (x) => x.open.state === 'open' || x.open.state === 'closing'], ['late', '밤 10시 이후', (x) => x.end != null && (x.end >= 22 * 60 || (x.start != null && x.end < x.start))], ['near', '1km 안', (x) => x.km <= 1]],
 };
+const sevYes = (x, n) => (x.sev || []).some((d) => d.n === n && d.state === 'yes');
 function nearFiltered(tab, list) {
   const on = S.near.filters[tab] || []; if (!on.length) return list;
   const fns = NEAR_FILTERS[tab].filter(([k]) => on.includes(k)).map(([, , f]) => f);
@@ -5244,6 +5277,8 @@ function nearErCard(x) {
   if (ec) chips.push(pill(ec.full ? '응급실 병상 여유 없음' : `응급실 빈 병상 ${ec.n}`, ec.full ? 'danger' : 'ok'));
   if (kid) chips.push(pill(kid.full ? '소아 병상 여유 없음' : `소아 병상 ${kid.n}`, kid.full ? 'warn' : 'ok'));
   if (nicu && !nicu.full) chips.push(pill(`신생아 중환자실 ${nicu.n}`, ''));
+  const kidSev = (x.sev || []).filter((d) => d.kid && d.state === 'yes');
+  if (kidSev.length) chips.push(pill(`영유아 중증 ${kidSev.length}가지 가능`, 'ok'));
   return `<div class="card near-card"><div class="spread"><b>${esc(x.name)}</b><span class="small muted num">${kmText(x.km)}</span></div>
     <span class="small muted">${esc(x.kind || '')}${b?.hvidate ? ` · ${egenTime(b.hvidate)} 기준` : ''}</span>
     ${chips.length ? `<div class="near-chips">${chips.join('')}</div>` : '<span class="small muted">실시간 병상 정보가 없어요</span>'}
