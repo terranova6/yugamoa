@@ -609,6 +609,7 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .near-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .near-tags .tag { font-size: .78rem; padding: 3px 9px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
 .near-tags .tag.hi { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.near-inf { background: var(--warn-soft); border-radius: 8px; padding: 6px 9px; }
 </style>
 </head>
 <body>
@@ -3613,7 +3614,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.14.1';
+const APP_VERSION = '1.14.2';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -5074,6 +5075,7 @@ function nearDetailHtml(tab, x) {
   h += sec('보유 의료장비', eq.length ? `<div class="near-tags">${eq.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
   const sp = (hira?.spcl || []).map(pickNm).filter(Boolean);
   h += sec('특수진료', sp.length ? `<div class="near-tags">${sp.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
+  if (egen?.dutyInf && egen.dutyInf.replace(/[-\s.]/g, '')) h = sec('병원 안내', `<p class="small near-inf">${esc(egen.dutyInf.replace(/^[-\s]+/, ''))}</p>`) + h;
   if (egen?.dutyHano && +egen.dutyHano) h += sec('입원 병상', `<p class="small">${+egen.dutyHano}개</p>`);
   if (b?.hospUrl && /^https?:\/\//.test(b.hospUrl)) h += `<a class="small" href="${esc(b.hospUrl)}" target="_blank" rel="noopener">병원 홈페이지 ↗</a>`;
   if (!h) h = `<p class="small muted">추가 정보를 찾지 못했어요.</p>`;
