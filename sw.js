@@ -1,5 +1,5 @@
 // 육아모아 서비스워커: 앱 파일을 저장해 두고 인터넷이 없어도 열리게 한다.
-const CACHE = 'yuamoa-v1.15.0';
+const CACHE = 'yuamoa-v1.16.0';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './config.js', './icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
