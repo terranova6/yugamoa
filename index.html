@@ -3657,7 +3657,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.17.0';
+const APP_VERSION = '1.17.1';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -5186,7 +5186,7 @@ function nearDetailHtml(tab, x) {
   const sp = (hira?.spcl || []).map(pickNm).filter(Boolean);
   h += sec('특수진료', sp.length ? `<div class="near-tags">${sp.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
   // 우수기관 평가정보
-  const ev = (hira?.eval || []).map((it) => { const ent = Object.entries(it); const name = it.asmNm || it.asmItmNm || pickNm(it); const val = it.asmGrd || it.grdNm || it.asmRslt || ent.find(([k]) => /Grd|Rslt|Yn$/.test(k))?.[1] || ''; return { name, val }; }).filter((d) => d.name);
+  const ev = (hira?.eval || []).map((it) => { const ent = Object.entries(it); const name = it.asmNm || it.asmItmNm || pickNm(it); const val = it.asmGrdNm ? `우수기관 ${String(it.asmGrdNm).replace(/(\d+)회연속/, '$1회 연속')}` : it.asmGrd || it.grdNm || it.asmRslt || ent.find(([k]) => /Grd|Rslt|Yn$/.test(k))?.[1] || ''; return { name, val }; }).filter((d) => d.name);
   h += sec('우수기관 평가정보', ev.length ? table(['평가항목', '평가정보'], ev.map((d) => ({ cells: [d.name, d.val || '우수기관'] }))) : '');
   // 진료 안내 (심평원 세부정보)
   const dt = hira?.dtl;
