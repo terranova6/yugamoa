@@ -610,6 +610,11 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .near-tags .tag { font-size: .78rem; padding: 3px 9px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
 .near-tags .tag.hi { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .near-inf { background: var(--warn-soft); border-radius: 8px; padding: 6px 9px; }
+.near-tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .86rem; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.near-tbl th { text-align: left; font-weight: 600; font-size: .78rem; color: var(--muted); padding: 7px 10px; background: var(--surface-2); }
+.near-tbl td { padding: 7px 10px; border-top: 1px solid var(--line); }
+.near-tbl .num { text-align: right; width: 34%; white-space: nowrap; }
+.near-tbl tr.hi td { color: var(--accent); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -3614,7 +3619,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.14.2';
+const APP_VERSION = '1.14.3';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -5043,8 +5048,8 @@ async function nearDetailLoad(tab, x) {
     const want = normName(x.name);
     const hit = cands.find((c) => normName(c.yadmNm) === want) || cands.find((c) => { const n = normName(c.yadmNm); return n && (n.includes(want) || want.includes(n)); });
     if (hit) {
-      const [dept, equip, spcl] = await Promise.all(['hira-dept', 'hira-equip', 'hira-spcl'].map((r) => careFetch(r, { ykiho: hit.ykiho, numOfRows: 100 }).catch(() => null)));
-      hira = { basic: hit, dept, equip, spcl };
+      const [dept, equip, spcl, ev] = await Promise.all(['hira-dept', 'hira-equip', 'hira-spcl', 'hira-eval'].map((r) => careFetch(r, { ykiho: hit.ykiho, numOfRows: 100 }).then((l) => Array.isArray(l) ? l : null).catch(() => null)));
+      hira = { basic: hit, dept, equip, spcl, eval: ev };
     }
   } catch (e) { /* 심평원 정보 없이 표시 */ }
   Object.assign(D_, { status: 'ok', egen: await egen, hira }); render();
@@ -5054,32 +5059,38 @@ function nearDetailHtml(tab, x) {
   if (!D_ || D_.status === 'loading') return `<div class="near-dtl"><span class="small muted">진료과목·의료진·장비 정보를 불러오는 중이에요…</span></div>`;
   const { egen, hira } = D_; let h = '';
   const sec = (t, body) => body ? `<div class="near-sec"><span class="label">${t}</span>${body}</div>` : '';
-  // 의료진
-  const b = hira?.basic; const peds = (hira?.dept || []).find((d) => /소아/.test(pickNm(d)));
-  const docs = [];
+  const table = (cols, rows) => `<table class="near-tbl"><thead><tr>${cols.map((c, k) => `<th${k ? ' class="num"' : ''}>${c}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr${r.hi ? ' class="hi"' : ''}>${r.cells.map((c, k) => `<td${k ? ' class="num"' : ''}>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  // 의료진 합계
+  const b = hira?.basic; const docs = [];
   if (b && +b.drTotCnt) docs.push(`의사 ${+b.drTotCnt}명`);
   if (b && +b.mdeptSdrCnt) docs.push(`전문의 ${+b.mdeptSdrCnt}명`);
-  if (peds) { const n = pickCnt(peds, 'dgsbjtPrSdrCnt'); if (n != null) docs.push(`<b>소아청소년과 전문의 ${n}명</b>`); }
   h += sec('의료진', docs.length ? `<p class="small">${docs.join(' · ')}</p>` : '');
+  // 진료과목별 전문의 정보
+  const deptRows = (hira?.dept || []).map((d) => ({ name: pickNm(d), n: pickCnt(d, 'dgsbjtPrSdrCnt') })).filter((d) => d.name);
+  const spec = deptRows.filter((d) => d.n > 0).sort((a, b2) => (/소아/.test(b2.name) - /소아/.test(a.name)) || b2.n - a.n);
+  h += sec('진료과목별 전문의 정보', spec.length ? table(['진료과목명', '전문의 수'], spec.map((d) => ({ cells: [d.name, `${d.n}명`], hi: /소아/.test(d.name) }))) : '');
   // 진료과목
-  let depts = (hira?.dept || []).map(pickNm).filter(Boolean);
+  let depts = deptRows.map((d) => d.name);
   if (!depts.length && egen?.dgidIdName) depts = egen.dgidIdName.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
-  h += sec('진료과목', depts.length ? `<div class="near-tags">${depts.map((d) => `<span class="tag${/소아/.test(d) ? ' hi' : ''}">${esc(d)}</span>`).join('')}</div>` : '');
+  h += sec('진료과목', depts.length ? `<div class="near-tags">${[...new Set(depts)].map((d) => `<span class="tag${/소아/.test(d) ? ' hi' : ''}">${esc(d)}</span>`).join('')}</div>` : '');
   // 실시간 장비 (응급실)
   if (tab === 'er' && x.bed) {
     const ok = ER_EQUIP.filter(([k]) => x.bed[k] === 'Y').map(([, l]) => l);
     h += sec('지금 쓸 수 있는 장비', ok.length ? `<div class="near-tags">${ok.map((l) => `<span class="tag">${esc(l)}</span>`).join('')}</div><span class="tiny muted">병원이 입력한 실시간 정보예요</span>` : '<p class="small muted">입력된 정보가 없어요</p>');
   }
-  // 보유 장비
-  const eq = (hira?.equip || []).map((it) => { const n = pickNm(it); const c = pickCnt(it, 'oftCnt'); return n ? `${n}${c ? ` ${c}대` : ''}` : ''; }).filter(Boolean);
-  h += sec('보유 의료장비', eq.length ? `<div class="near-tags">${eq.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
+  // 특수진료장비
+  const eq = (hira?.equip || []).map((it) => ({ name: pickNm(it), n: pickCnt(it, 'oftCnt') })).filter((d) => d.name);
+  h += sec('특수진료장비', eq.length ? table(['특수진료장비', '장비 수'], eq.map((d) => ({ cells: [d.name, d.n != null ? String(d.n) : '-'] }))) : '');
   const sp = (hira?.spcl || []).map(pickNm).filter(Boolean);
   h += sec('특수진료', sp.length ? `<div class="near-tags">${sp.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
+  // 우수기관 평가정보
+  const ev = (hira?.eval || []).map((it) => { const ent = Object.entries(it); const name = it.asmNm || it.asmItmNm || pickNm(it); const val = it.asmGrd || it.grdNm || it.asmRslt || ent.find(([k]) => /Grd|Rslt|Yn$/.test(k))?.[1] || ''; return { name, val }; }).filter((d) => d.name);
+  h += sec('우수기관 평가정보', ev.length ? table(['평가항목', '평가정보'], ev.map((d) => ({ cells: [d.name, d.val || '우수기관'] }))) : '');
   if (egen?.dutyInf && egen.dutyInf.replace(/[-\s.]/g, '')) h = sec('병원 안내', `<p class="small near-inf">${esc(egen.dutyInf.replace(/^[-\s]+/, ''))}</p>`) + h;
   if (egen?.dutyHano && +egen.dutyHano) h += sec('입원 병상', `<p class="small">${+egen.dutyHano}개</p>`);
   if (b?.hospUrl && /^https?:\/\//.test(b.hospUrl)) h += `<a class="small" href="${esc(b.hospUrl)}" target="_blank" rel="noopener">병원 홈페이지 ↗</a>`;
   if (!h) h = `<p class="small muted">추가 정보를 찾지 못했어요.</p>`;
-  return `<div class="near-dtl">${h}<span class="tiny muted">자료: 건강보험심사평가원(의료진·진료과목·장비), 국립중앙의료원(기본정보)${hira ? '' : ' · 심평원 정보와 연결하지 못했어요'}</span></div>`;
+  return `<div class="near-dtl">${h}<span class="tiny muted">자료: 건강보험심사평가원(의료진·진료과목·장비·평가), 국립중앙의료원(기본정보)${hira ? '' : ' · 심평원 정보와 연결하지 못했어요'}</span></div>`;
 }
 ACT.nearMore = (el) => {
   const N = S.near; const tab = N.tab; const id = el.dataset.a; const k = tab + ':' + id;
