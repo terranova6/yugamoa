@@ -625,6 +625,11 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .hosp-quick .mi { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--tone) 14%, var(--surface)); color: var(--tone); margin-bottom: 4px; }
 .hosp-quick .mi svg { width: 19px; height: 19px; }
 .log-seg { margin-bottom: 4px; }
+.drug-list { display: grid; gap: 6px; }
+.drug-row { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.drug-head { width: 100%; display: flex; gap: 8px; align-items: center; text-align: left; border: 0; background: var(--surface); padding: 10px 12px; font: inherit; color: var(--ink); }
+.drug-body { display: grid; gap: 10px; padding: 10px 12px 12px; background: var(--bg); }
+.pre { white-space: pre-line; margin: 0; }
 </style>
 </head>
 <body>
@@ -2022,6 +2027,29 @@ const OPEN_RANK = { open: 0, closing: 1, before: 2, unknown: 3, closed: 4 };
 function bedInfo(v) { const n = parseInt(v, 10); if (!Number.isFinite(n)) return null; return { n, full: n <= 0 }; }
 // 기준 시각 "20261017101500" → 10:15
 const egenTime = (v) => { const m = String(v || '').match(/^\d{8}(\d{2})(\d{2})/); return m ? `${m[1]}:${m[2]}` : ''; };
+
+/* --- 약 이름 검색 결과 → 성분 · 해열제 계열 판단 (식약처 데이터) --- */
+const DRUG_ING_KEYS = ['INGR_NAME', 'MAIN_INGR', 'MAIN_ITEM_INGR', 'MATERIAL_NAME', 'ITEM_INGR_NAME'];
+function drugIngredients(...items) {
+  const out = new Set();
+  for (const it of items.filter(Boolean)) {
+    for (const k of DRUG_ING_KEYS) {
+      const v = it[k]; if (!v) continue;
+      String(v).split(/[|,/]|\]|\[/).forEach((t) => { const m = t.replace(/^.*성분명\s*:\s*/, '').replace(/M\d{5,}|D\d{5,}/g, '').replace(/\(.*?\)/g, '').trim(); if (/[가-힣]{2,}/.test(m) && !/총량|분량|단위|규격|비고|밀리|그램/.test(m)) out.add(m); });
+    }
+    const nm = it.itemName || it.ITEM_NAME || '';
+    const par = nm.match(/\(([^()]+)\)\s*$/); if (par) par[1].split(/[,·]/).forEach((t) => { t = t.trim(); if (/[가-힣]{2,}/.test(t) && !/수출|병|포/.test(t)) out.add(t); });
+  }
+  return [...out];
+}
+// 해열제 계열: 성분 이름으로 판단. 여러 성분이 섞인 약도 해열 성분이 들어 있으면 그 계열로 본다
+function drugCategory(ings, item = {}) {
+  const has = (re) => ings.some((t) => re.test(t));
+  const fever = has(/덱시부프로펜/) ? 'dexi' : has(/이부프로펜/) ? 'ibu' : has(/아세트아미노펜|파라세타몰/) ? 'aap' : null;
+  const combo = ings.length > 1;
+  const rx = /전문/.test(item.ETC_OTC_NAME || item.etcOtcName || '');
+  return { key: fever || (rx ? 'rx' : 'cold'), fever, combo, rx };
+}
 
 /* ---- 07-ui.js ---- */
 /* ===== 화면 상태 & 공통 컴포넌트 ===== */
@@ -3629,7 +3657,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.17.0';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -4921,14 +4949,15 @@ function pageMedCross(child) {
       ${g.last ? `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;--tone:${g.ready ? 'var(--ok)' : 'var(--c-symptom)'}"></div></div>
       <span class="small muted">마지막 ${fmtHM(g.last.start)} (${ago(g.last.start)})${g.ready ? '' : ` · ${leftText(g.next - now)}`} · 24시간 ${g.count}/${rule.maxCount}회</span>` : '<span class="small muted">24시간 안에 먹인 기록이 없어요</span>'}</div>`;
   }).join('')}<span class="tiny muted">약 기록으로 계산해요. 기록하지 않고 먹인 약은 반영되지 않아요.</span></div>`;
+  h += drugSearchCard();
   // 1. 먼저 먹인 약 + 시각
-  h += field('1. 먼저 먹인 약', opts('a', f.a));
+  h += field(`1. 먼저 먹인 약${f.aName ? ` <span class="pill">${esc(f.aName)}</span>` : ''}`, opts('a', f.a));
   if (f.a) {
     const rec = crossLastRec(child, f.a);
     h += field('언제 먹였나요?', `<div class="chips">${rec ? chip(`기록: ${fmtHM(rec.start)}`, f.when === 'rec', 'crossWhen', 'rec', '', 'var(--c-med)') : ''}${CROSS_AGO.map(([v, l]) => chip(l, f.when === String(v), 'crossWhen', v, '', 'var(--c-med)')).join('')}</div>`);
   }
   // 2. 먹이려는 약
-  h += field('2. 이제 먹이려는 약', opts('b', f.b));
+  h += field(`2. 이제 먹이려는 약${f.bName ? ` <span class="pill">${esc(f.bName)}</span>` : ''}`, opts('b', f.b));
   if (f.a && f.b) {
     const r = crossCheck(f.a, f.b); const lv = CROSS_LEVEL[r.level];
     const rec = crossLastRec(child, f.a);
@@ -4964,7 +4993,7 @@ function pageMedCross(child) {
   return h;
 }
 ACT.crossPick = (el) => {
-  const f = S.form.cross || (S.form.cross = {}); const k = el.dataset.a; f[k] = f[k] === el.dataset.b ? null : el.dataset.b;
+  const f = S.form.cross || (S.form.cross = {}); const k = el.dataset.a; f[k] = f[k] === el.dataset.b ? null : el.dataset.b; f[k + 'Name'] = null;
   if (k === 'a') { const child = activeChild(); f.when = f.a && crossLastRec(child, f.a) ? 'rec' : null; }
   render();
 };
@@ -4973,6 +5002,66 @@ ACT.crossRec = (el) => {
   const ing = el.dataset.a; const child = activeChild(); const d = newDraft('med');
   d.data.category = '해열제'; fillMedFrom(d, lastMedLike(child.id, { ingredient: ing }), ing); d.data.ingredient = ing;
   openEditor(d, false);
+};
+
+/* --- 약 이름으로 성분 확인 (식약처: 의약품개요정보 · DUR 효능군중복/연령금기 · 제품허가정보) --- */
+S.drug = S.drug || { q: '', status: 'idle', list: [], open: null, info: {} };
+const cleanTxt = (t) => String(t || '').replace(/<[^>]+>/g, ' ').replace(/\s+\n/g, '\n').trim();
+const shortName = (n) => String(n || '').replace(/\(.*?\)\s*$/, '').trim();
+function drugSearchCard() {
+  const D2 = S.drug;
+  let h = `<div class="card stack drug-card"><span class="label">약 이름으로 성분 확인</span>
+    <div class="row"><input class="input grow" id="drug-q" placeholder="예: 챔프, 콜대원, 부루펜" value="${esc(D2.q)}" data-bind="drug.q" enterkeyhint="search">${btn('찾기', 'drugSearch', { cls: 'sm primary' })}</div>`;
+  if (D2.status === 'loading') h += `<span class="small muted">찾는 중이에요…</span>`;
+  else if (D2.status === 'error') h += `<span class="small muted">${esc(D2.err)}</span>`;
+  else if (D2.status === 'ok' && !D2.list.length) h += `<span class="small muted">찾은 약이 없어요. 제품 이름을 조금 짧게 넣어 보세요.</span>`;
+  else if (D2.status === 'ok') h += `<div class="drug-list">${D2.list.map((x, i) => drugRow(x, i)).join('')}</div>`;
+  h += `<span class="tiny muted">자료: 식품의약품안전처. 성분과 금기 정보는 참고용이에요. 처방약은 약사·의사에게 확인하세요.</span></div>`;
+  return h;
+}
+function drugRow(x, i) {
+  const D2 = S.drug; const cat = x.cat; const op = D2.open === i;
+  const catPill = cat.fever ? pill({ aap: '아세트아미노펜 계열', ibu: '이부프로펜 계열', dexi: '덱시부프로펜 계열' }[cat.fever], cat.fever === 'aap' ? 'warn' : 'accent') : pill(cat.rx ? '전문의약품' : '해열 성분 없음', '');
+  let h = `<div class="drug-row"><button type="button" class="drug-head" data-act="drugOpen" data-a="${i}" aria-expanded="${op}"><span class="grow"><b>${esc(shortName(x.itemName))}</b><br><span class="tiny muted">${esc(x.entpName || '')}</span></span>${catPill}</button>`;
+  if (op) {
+    const sec = (t, v) => v ? `<div class="near-sec"><span class="label">${t}</span><p class="small pre">${esc(cleanTxt(v)).slice(0, 600)}</p></div>` : '';
+    const inf = D2.info[x.itemSeq] || {};
+    h += `<div class="drug-body">`;
+    h += `<div class="near-sec"><span class="label">성분</span>${x.ings.length ? `<div class="near-tags">${x.ings.map((t) => `<span class="tag${/아세트아미노펜|이부프로펜|덱시부프로펜/.test(t) ? ' hi' : ''}">${esc(t)}</span>`).join('')}</div>` : '<p class="small muted">성분 정보를 찾지 못했어요. 상자의 성분표를 확인하세요.</p>'}</div>`;
+    if (cat.fever && cat.combo) h += `<div class="notice warn small">이 약에는 해열 성분(${esc({ aap: '아세트아미노펜', ibu: '이부프로펜', dexi: '덱시부프로펜' }[cat.fever])})이 들어 있어요. 같은 성분 해열제와 함께 먹이면 양이 겹쳐요.</div>`;
+    if (x.dup) h += sec('효능군', [x.dup.EFFECT_NAME, x.dup.SERS_NAME].filter(Boolean).join(' · '));
+    if (inf.loading) h += `<span class="small muted">금기 정보를 확인하는 중…</span>`;
+    if (inf.age?.length) h += `<div class="notice danger small"><b>연령 금기</b><br>${inf.age.map((a) => esc(cleanTxt(a.PROHBT_CONTENT || a.prohbtContent || Object.values(a).filter((v) => String(v).length > 12).sort((p, q) => q.length - p.length)[0] || ''))).join('<br>')}</div>`;
+    h += sec('효능', x.efcyQesitm) + sec('먹는 법', x.useMethodQesitm) + sec('주의', [x.atpnWarnQesitm, x.atpnQesitm].filter(Boolean).join('\n')) + sec('같이 먹으면 안 되는 것', x.intrcQesitm);
+    h += `<div class="row">${btn('먼저 먹인 약으로', 'drugUse', { a: i, b: 'a', cls: 'sm' })}${btn('먹이려는 약으로', 'drugUse', { a: i, b: 'b', cls: 'sm' })}</div></div>`;
+  }
+  return h + `</div>`;
+}
+ACT.drugSearch = async () => {
+  const D2 = S.drug; const inp = document.getElementById('drug-q'); if (inp) D2.q = inp.value.trim();
+  if (D2.q.length < 2) { toast('약 이름을 두 글자 이상 넣어 주세요'); return; }
+  D2.status = 'loading'; D2.open = null; render();
+  try {
+    const [easy, dup] = await Promise.all([careFetch('drug-easy', { itemName: D2.q, numOfRows: 15 }), careFetch('drug-dur-dup', { itemName: D2.q, numOfRows: 50 }).catch(() => [])]);
+    const dupBy = {}; for (const d of (Array.isArray(dup) ? dup : [])) (dupBy[d.ITEM_SEQ] = dupBy[d.ITEM_SEQ] || []).push(d);
+    D2.list = (Array.isArray(easy) ? easy : []).map((x) => { const ds = dupBy[x.itemSeq] || []; const ings = drugIngredients(x, ...ds); return { ...x, dup: ds[0] || null, ings, cat: drugCategory(ings, ds[0] || {}) }; });
+    D2.status = 'ok';
+  } catch (e) { D2.status = 'error'; D2.err = e.message || '찾지 못했어요'; }
+  render();
+};
+ACT.drugOpen = async (el) => {
+  const D2 = S.drug; const i = +el.dataset.a; D2.open = D2.open === i ? null : i; render();
+  const x = D2.list[i]; if (D2.open == null || !x || D2.info[x.itemSeq]) return;
+  const inf = D2.info[x.itemSeq] = { loading: true }; render();
+  const [age, pr] = await Promise.all([careFetch('drug-dur-age', { itemName: shortName(x.itemName), numOfRows: 10 }).catch(() => []), x.ings.length ? Promise.resolve([]) : careFetch('drug-prmsn', { item_seq: x.itemSeq, numOfRows: 1 }).catch(() => [])]);
+  inf.age = (Array.isArray(age) ? age : []).filter((a) => !a.ITEM_SEQ || a.ITEM_SEQ === x.itemSeq);
+  if (Array.isArray(pr) && pr[0]) { x.ings = drugIngredients(x, pr[0]); x.cat = drugCategory(x.ings, pr[0]); }
+  inf.loading = false; render();
+};
+ACT.drugUse = (el) => {
+  const x = S.drug.list[+el.dataset.a]; if (!x) return; const f = S.form.cross || (S.form.cross = {});
+  const k = el.dataset.b; f[k] = x.cat.key; f[k + 'Name'] = shortName(x.itemName);
+  if (k === 'a') f.when = null; render(); toast(`${shortName(x.itemName)}을(를) ${k === 'a' ? '먼저 먹인 약' : '먹이려는 약'}으로 골랐어요`);
 };
 
 /* ---- 22-nearby.js ---- */
