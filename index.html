@@ -638,6 +638,12 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .care-item.ok{border-left-color:var(--ok,#3aa76d)}
 .care-119{border:1.5px solid var(--danger,#d9534f)}
 .care-band h3,.care-now h3{margin:0}
+.hosp-quick button.wide { grid-column: 1 / -1; }
+.hosp-quick button.wide .spread { display: flex; justify-content: space-between; align-items: flex-start; }
+.care-alert { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; border-left: 4px solid var(--warn); font: inherit; color: var(--ink); margin-top: 10px; cursor: pointer; }
+.care-alert.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+.care-alert.warn { background: var(--warn-soft); }
+.care-alert-go { color: var(--accent); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -2913,8 +2919,11 @@ function viewHealth(child) {
   const fm = feverMedStatus(cid, now); const ageM = ageMonthsFloat(child.birth);
   let h = `<div class="card" style="margin-top:4px"><div class="spread"><span class="label">최근 체온</span>${last ? `<span class="small muted">${ago(last.start)}</span>` : ''}</div>
     <div class="row" style="margin:4px 0 10px"><span style="font-size:2.2rem;font-weight:600" class="num">${last ? fmtNum(last.value) + '℃' : '-'}</span>${lv ? pill(lv.text, lv.cls) : ''}${last?.data?.site ? `<span class="small muted">${esc(last.data.site)}</span>` : ''}</div>
-    <div class="row wrap">${['temp', 'med', 'symptom', 'hospital'].map((t) => btn(`${svgIcon(t)}<span>${TYPES[t].name}</span>`, 'newRec', { a: t, cls: 'sm with-icon', attrs: `style="--tone:${tone(t)}"` })).join('')}</div></div>`;
+    <div class="row wrap">${['temp', 'med', 'symptom'].map((t) => btn(`${svgIcon(t)}<span>${TYPES[t].name}</span>`, 'newRec', { a: t, cls: 'sm with-icon', attrs: `style="--tone:${tone(t)}"` })).join('')}</div></div>`;
   if (ageM < 3) h += `<div class="notice danger" style="margin-top:10px"><b>생후 3개월 미만</b>은 38.0℃ 이상이면 해열제보다 진료가 먼저예요.</div>`;
+  // 기록이 진료 기준에 걸리면 병원 탭의 '병원에 가야 할 때'로 안내 (메뉴를 두 곳에 두지 않고, 필요할 때만 연결)
+  const care = careCheck(child, now); const top = care.items[0];
+  if (top && (top.level === 'danger' || top.level === 'warn')) h += `<button type="button" class="card care-alert ${top.level}" data-act="push" data-a="feverGuide"><span class="grow"><b>${esc(top.title)}</b><br><span class="small muted">${esc(top.detail)}</span></span><span class="small care-alert-go">병원에 가야 할 때 ›</span></button>`;
 
   h += sectionTitle('해열제', '용량 참고', 'push', 'medCalc');
   h += `<div class="card stack" style="gap:10px">${fm.groups.map((g) => `<div class="stack" style="gap:2px"><div class="spread"><b>${esc(g.label)}</b>${!g.last ? pill('기록 없음') : g.ready ? pill('지금 가능', 'ok') : pill(`${fmtTime(g.next)}부터`, 'warn')}</div>
@@ -2932,16 +2941,9 @@ function viewHealth(child) {
   h += sectionTitle('열 났던 기간', eps.length > 3 ? '전체 보기' : '', 'push', 'episodes');
   h += eps.length ? `<div class="menu">${eps.slice(0, 3).map((e) => episodeRow(e)).join('')}</div>` : `<div class="card empty">37.5℃ 넘은 기록이 없어요.</div>`;
 
-  h += sectionTitle('도구');
-  h += `<div class="menu">
-    ${menuItem('fire', '병원에 가야 할 때', '', 'push', 'feverGuide', 'var(--c-temp)')}
-    ${menuItem('med', '해열제 용량', '', 'push', 'medCalc', 'var(--c-med)')}
-    ${menuItem('med', '같이 먹여도 될까?', '해열제 교차복용', 'push', 'medCross', 'var(--c-med)')}
-  </div>`;
-
-  const recent = recsOfType(['temp', 'med', 'symptom', 'hospital', 'vaccine'], cid).slice(-12).reverse();
-  h += sectionTitle('최근 건강 기록');
-  h += recent.length ? `<div class="rec-list">${recent.map((x) => recRow(x, { showDate: true })).join('')}</div>` : `<div class="card empty">건강 기록이 아직 없어요.</div>`;
+  const recent = recsOfType(['temp', 'med', 'symptom'], cid).slice(-12).reverse();
+  h += sectionTitle('최근 체온·약·증상');
+  h += recent.length ? `<div class="rec-list">${recent.map((x) => recRow(x, { showDate: true })).join('')}</div>` : `<div class="card empty">체온·약·증상 기록이 아직 없어요.</div>`;
   return h;
 }
 function menuItem(icon, title, sub, act, a, toneVar = 'var(--accent)', phase = '') {
@@ -3003,7 +3005,7 @@ function pageFeverGuide(child) {
 }
 
 /* --- 지도 앱 연결 (실시간 찾기 화면 아래에 함께 표시) --- */
-function nearbyLinksHtml() {
+function nearbyLinksHtml(withReport = true) {
   const q = encodeURIComponent('소아청소년과');
   const links = [
     ['카카오맵에서 소아청소년과 찾기', `https://map.kakao.com/?q=${q}`, '현재 위치 주변 병원과 진료 시간'],
@@ -3013,8 +3015,8 @@ function nearbyLinksHtml() {
     ['똑닥 (진료 접수·예약)', 'https://ddocdoc.com/', '똑닥 제휴 병원 모바일 접수는 똑닥 앱에서'],
   ];
   return `<div class="stack"><div class="menu">${links.map(([t, u, s]) => `<a href="${u}" target="_blank" rel="noopener"><span class="mi" style="--tone:var(--c-water)">${ICONS.map}</span><span class="grow"><b>${esc(t)}</b><br><span class="small muted">${esc(s)}</span></span><span class="chev">↗</span></a>`).join('')}</div>
-    <p class="small muted">병원 접수·예약은 병원과 계약한 서비스(똑닥 등)에서만 할 수 있어 해당 앱으로 연결해요. 진료 전에 <b>진료용 요약 리포트</b>를 열어 두면 의사에게 경과를 보여주기 좋아요.</p>
-    ${btn('진료용 요약 리포트 열기', 'push', { a: 'report', cls: 'block' })}</div>`;
+    <p class="small muted">병원 접수·예약은 병원과 계약한 서비스(똑닥 등)에서만 할 수 있어 해당 앱으로 연결해요. 진료 전에 위의 <b>진료 리포트</b>를 열어 두면 의사에게 경과를 보여주기 좋아요.</p>
+    ${withReport ? btn('진료용 요약 리포트 열기', 'push', { a: 'report', cls: 'block' }) : ''}</div>`;
 }
 
 /* --- 열 묶음 목록/상세 --- */
@@ -3815,7 +3817,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.20.1';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -3849,7 +3851,7 @@ function viewTopbar(child) {
   return `<header class="topbar"><button type="button" class="kid-switch" data-act="push" data-a="children" aria-label="아이 관리">
     <span class="avatar">${child.photoId ? `<img data-photo="${child.photoId}" alt="">` : esc(child.name.slice(0, 1))}</span>
     <span class="grow"><span class="kid-name">${esc(child.name)}${D.children.length > 1 ? ' <span class="small muted">▾</span>' : ''}</span><br><span class="kid-age num">${ageText(child.birth)} · D+${ageParts(child.birth).dayCount}</span></span></button>
-    <button type="button" class="icon-btn labeled" data-act="push" data-a="report">${ICONS.report}<span>진료 리포트</span></button>
+    ${S.tab === 'hosp' ? '' : `<button type="button" class="icon-btn labeled" data-act="push" data-a="report">${ICONS.report}<span>진료 리포트</span></button>`}
     <button type="button" class="icon-btn" data-act="tab" data-a="more" aria-label="더보기 메뉴" ${S.tab === 'more' ? 'aria-current="page"' : ''}>${ICONS.menu}</button></header>`;
 }
 function viewNav() {
@@ -5463,21 +5465,22 @@ ACT.nearRetry = () => { S.near.status = 'idle'; nearStart(); };
 
 /* ---- 23-hosp.js ---- */
 /* ===== 병원 탭: 지금 갈 수 있는 곳 + 진료 갈 때 필요한 것 =====
-   건강 탭(아이 상태 기록·확인)과 나눠, 병원·응급실·약국과 관련된 것은 여기에 모은다. */
+   건강 탭(체온·약·증상·성장·접종·발달 기록과 확인)과 나눠, 병원에 갈지 정하기·찾기·다녀온 기록·리포트는 여기에 모은다. */
 function viewLogSeg() { return `<div class="stack log-seg" style="margin-top:4px">${seg([['timeline', '타임라인'], ['album', '앨범']], S.tab, 'tab')}</div>`; }
 function viewHospital(child) {
   const cid = child.id;
+  const care = careCheck(child); const flagged = care.items.filter((x) => x.level === 'danger' || x.level === 'warn');
+  const carePill = care.worst === 'danger' ? pill(`진료 기준 ${flagged.filter((x) => x.level === 'danger').length}개`, 'danger') : care.worst === 'warn' ? pill('주의할 항목 있음', 'warn') : '';
   let h = `<div class="hosp-quick">
+    <button type="button" class="wide" data-act="push" data-a="feverGuide"><span class="spread"><span class="mi" style="--tone:var(--c-temp)">${ICONS.fire}</span>${carePill}</span><b>병원에 가야 할 때</b><span class="small muted">${esc(care.band.label)} 기준과 최근 기록으로 확인해요</span></button>
     <button type="button" data-act="push" data-a="report"><span class="mi" style="--tone:var(--c-hospital)">${ICONS.report}</span><b>진료 리포트</b><span class="small muted">의사에게 보여 줄 요약</span></button>
     <button type="button" data-act="newRec" data-a="hospital"><span class="mi" style="--tone:var(--c-hospital)">${svgIcon('hospital')}</span><b>병원 다녀온 기록</b><span class="small muted">진단·처방 남기기</span></button>
-    <button type="button" data-act="push" data-a="feverGuide"><span class="mi" style="--tone:var(--c-temp)">${ICONS.fire}</span><b>병원에 가야 할 때</b><span class="small muted">바로 진료가 필요한 신호</span></button>
-    <button type="button" data-act="push" data-a="healthCal"><span class="mi" style="--tone:var(--c-vaccine)">${ICONS.calendar}</span><b>접종·검진 일정</b><span class="small muted">달력으로 보기</span></button>
   </div>`;
   h += sectionTitle('지금 갈 수 있는 곳') + nearbyBody(false);
-  const visits = recsOfType(['hospital', 'vaccine'], cid).slice(-5).reverse();
+  const visits = recsOfType('hospital', cid).slice(-5).reverse();
   h += sectionTitle('최근 병원 기록');
-  h += visits.length ? `<div class="rec-list">${visits.map((x) => recRow(x, { showDate: true })).join('')}</div>` : `<div class="card empty">병원·접종 기록이 아직 없어요.</div>`;
-  h += sectionTitle('지도 앱에서 찾기') + nearbyLinksHtml();
+  h += visits.length ? `<div class="rec-list">${visits.map((x) => recRow(x, { showDate: true })).join('')}</div>` : `<div class="card empty">병원 다녀온 기록이 아직 없어요.</div>`;
+  h += sectionTitle('지도 앱에서 찾기') + nearbyLinksHtml(false);
   return h;
 }
 
