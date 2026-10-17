@@ -641,6 +641,9 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 <script>/* ---- 00-util.js ---- */
 'use strict';
 /* ===== 공통 도구 ===== */
+/* 안드로이드·아이폰 앱(Capacitor)으로 열었는지 */
+const NATIVE = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+const CAP = (name) => (NATIVE && (window.YuamoaCap?.[name] || window.Capacitor.Plugins?.[name])) || null;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -3491,7 +3494,7 @@ ACT.qReset = async () => { await setKV('quickTypes', DEFAULT_QUICK); render(); }
 /* --- 알림 --- */
 function pageNotify() {
   const n = kv('notify', { feed: false, feedH: 3, med: false });
-  const perm = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  const perm = NATIVE ? 'granted' : typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
   return pageHead('알림') + `<div class="stack">
     ${perm === 'unsupported' ? '<div class="notice warn">이 브라우저는 알림을 지원하지 않아요. 홈 화면에 추가한 앱에서 다시 시도해 보세요.</div>' : perm === 'denied' ? '<div class="notice warn">알림이 차단되어 있어요. 휴대폰 설정에서 이 앱의 알림을 허용해 주세요.</div>' : ''}
     <div class="card stack"><div class="spread"><span><b>수유 간격 알림</b><br><span class="small muted">마지막 수유 후 정한 시간이 지나면 알려요</span></span>${btn(n.feed ? '켜짐' : '꺼짐', 'nToggle', { a: 'feed', cls: n.feed ? 'sm primary' : 'sm' })}</div>
@@ -3500,48 +3503,75 @@ function pageNotify() {
     <div class="card"><div class="spread"><span><b>해열제 알림</b><br><span class="small muted">다음 해열제를 먹일 수 있는 시각, 먹인 지 1시간 뒤 체온 다시 재기</span></span>${btn(n.med ? '켜짐' : '꺼짐', 'nToggle', { a: 'med', cls: n.med ? 'sm primary' : 'sm' })}</div></div>
     <div class="card stack"><div class="spread"><span><b>추억 영상 알림</b><br><span class="small muted">100일·돌 같은 기념일, 매달 생일, 1년·한 달 전 이맘때 사진을 음악과 함께 영상으로 보내 드려요</span></span>${btn(memSettings().on ? '켜짐' : '꺼짐', 'nMemory', { cls: memSettings().on ? 'sm primary' : 'sm' })}</div>
       ${memSettings().on ? `<div class="chips">${[[9, '오전 9시'], [12, '낮 12시'], [20, '저녁 8시'], [21, '밤 9시']].map(([h, l]) => chip(l, memSettings().hour === h, 'nMemHour', h)).join('')}</div>` : ''}</div>
-    <p class="small muted">알림은 앱이 열려 있거나 최근에 사용한 상태에서 울려요. 휴대폰이 앱을 완전히 종료하면 늦거나 오지 않을 수 있어요(서버 푸시는 가족 공유와 함께 다음 단계에서 추가 예정).</p>
+    ${NATIVE ? '<p class="small muted">알림은 미리 예약돼서 앱을 꺼 두어도 정한 시각에 울려요. 휴대폰 설정에서 육아모아 알림이 켜져 있어야 해요.</p>' : `<p class="small muted">알림은 앱이 열려 있거나 최근에 사용한 상태에서 울려요. 휴대폰이 앱을 완전히 종료하면 늦거나 오지 않을 수 있어요(서버 푸시는 가족 공유와 함께 다음 단계에서 추가 예정).</p>`}
     ${btn('알림 시험해 보기', 'nTest', { cls: 'block' })}</div>`;
 }
 ACT.nToggle = async (el) => {
   const n = { ...kv('notify', { feed: false, feedH: 3, med: false }) }; const k = el.dataset.a; n[k] = !n[k];
-  if (n[k] && typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } }
-  await setKV('notify', n); render();
+  if (n[k]) await askNotifyPermission();
+  await setKV('notify', n); render(); nativeRemindSync();
 };
-ACT.nFeedH = async (el) => { const n = { ...kv('notify', {}) }; n.feedH = +el.dataset.a; await setKV('notify', n); render(); };
-ACT.nMemory = async () => { const n = { ...kv('notify', {}) }; n.memory = !memSettings().on; if (n.memory && typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } } await setKV('notify', n); render(); };
+ACT.nFeedH = async (el) => { const n = { ...kv('notify', {}) }; n.feedH = +el.dataset.a; await setKV('notify', n); render(); nativeRemindSync(); };
+ACT.nMemory = async () => { const n = { ...kv('notify', {}) }; n.memory = !memSettings().on; if (n.memory && NATIVE) await askNotifyPermission(); if (n.memory && !NATIVE && typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } } await setKV('notify', n); render(); };
 ACT.nMemHour = async (el) => { const n = { ...kv('notify', {}) }; n.memoryHour = +el.dataset.a; await setKV('notify', n); render(); };
 ACT.nTest = () => notify('육아모아 알림', '알림이 이렇게 표시돼요.');
 async function notify(title, body, data = null, quiet = false) {
   if (!quiet) toast(`${title}: ${body}`);
+  if (NATIVE) { nativeNotifyNow(title, body); return; }
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     const reg = await navigator.serviceWorker?.getRegistration?.();
     if (reg) reg.showNotification(title, { body, tag: title, icon: 'icon-192.png', data }); else new Notification(title, { body, icon: 'icon-192.png' });
   } catch (e) { /* 무시 */ }
 }
+async function askNotifyPermission() {
+  if (NATIVE) return nativeNotifyPermission();
+  if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } }
+}
+/* 앱(안드로이드·아이폰)에서는 알림을 미리 예약해 두므로 앱이 꺼져 있어도 울린다. 앱이 열려 있을 때 중복 알림 대신 화면 안내만 */
+const remind = (title, body) => NATIVE ? toast(`${title}: ${body}`) : notify(title, body);
+/* 앞으로 울릴 알림 목록 (앱에서 미리 예약하는 용도) */
+function reminderPlan(now = Date.now()) {
+  const n = kv('notify', null); const child = activeChild(); const out = [];
+  if (!n || !child || child.demo) return out;
+  if (n.feed) {
+    const lf = lastOf(FEED_TYPES, child.id);
+    const at = lf ? (n.feedH ? lf.start + n.feedH * HOUR : predictFeed(child, now)?.at) : null;
+    if (at) out.push({ id: 101, at, title: '수유 시간이에요', body: `${child.name} 마지막 수유(${fmtHM(lf.start)}) 후 ${fmtDur(at - lf.start)} 지났어요` });
+  }
+  if (n.nap) {
+    const p = predictSleep(child, now, timers().find((t) => t.childId === child.id && t.type === 'sleep')?.start || null);
+    if (p && !p.sleeping && p.kind === 'nap' && p.from) out.push({ id: 102, at: p.from - 10 * MIN, title: '곧 낮잠 시간이에요', body: `${fmtHM(p.at)}쯤 재우면 좋아요` });
+  }
+  if (n.med) {
+    feverMedStatus(child.id, now).groups.forEach((g, i) => { if (g.last && now - g.last.start <= DAY && !g.ready && g.next) out.push({ id: 110 + i, at: g.next, title: '해열제 복용 가능', body: `${g.label}을(를) 지금부터 먹일 수 있어요` }); });
+    const rc = tempRecheck(child.id, now);
+    if (rc && !rc.due) out.push({ id: 120, at: rc.at, title: '체온 다시 재기', body: `${child.name} 해열제 먹인 지 1시간이 지났어요. 열이 내렸는지 확인해 보세요` });
+  }
+  return out.filter((x) => x.at > now + 30 * 1000 && x.at < now + 2 * DAY);
+}
 function checkReminders() {
-  checkMemory();
+  checkMemory(); nativeRemindSync();
   const n = kv('notify', null); const child = activeChild(); if (!n || !child || child.demo) return;
   const now = Date.now(); const sent = { ...kv('notified', {}) }; let changed = false;
   if (n.feed) {
     const lf = lastOf(FEED_TYPES, child.id); const key = `feed:${lf?.id}`;
     const pf = n.feedH ? null : predictFeed(child, now); // 0 = 자동(아이 평균 간격)
     const due = lf && (n.feedH ? now - lf.start >= n.feedH * HOUR : pf && now >= pf.at);
-    if (due && !sent[key]) { notify('수유 시간이에요', `${child.name} 마지막 수유 후 ${fmtDur(now - lf.start)} 지났어요`); sent[key] = now; changed = true; }
+    if (due && !sent[key]) { remind('수유 시간이에요', `${child.name} 마지막 수유 후 ${fmtDur(now - lf.start)} 지났어요`); sent[key] = now; changed = true; }
   }
   if (n.nap) {
     const p = predictSleep(child, now, timers().find((t) => t.childId === child.id && t.type === 'sleep')?.start || null);
     const key = `nap:${p?.lastEnd}`;
-    if (p && !p.sleeping && p.kind === 'nap' && now >= p.from - 10 * MIN && now < p.to && !sent[key]) { notify('곧 낮잠 시간이에요', `${child.name} 깬 지 ${fmtDur(p.awake)}. ${fmtHM(p.at)}쯤 재우면 좋아요`); sent[key] = now; changed = true; }
+    if (p && !p.sleeping && p.kind === 'nap' && now >= p.from - 10 * MIN && now < p.to && !sent[key]) { remind('곧 낮잠 시간이에요', `${child.name} 깬 지 ${fmtDur(p.awake)}. ${fmtHM(p.at)}쯤 재우면 좋아요`); sent[key] = now; changed = true; }
   }
   if (n.med) {
     for (const g of feverMedStatus(child.id, now).groups) {
       if (!g.last || now - g.last.start > DAY) continue; const key = `med:${g.group}:${g.last.id}`;
-      if (g.ready && !sent[key]) { notify('해열제 복용 가능', `${g.label}을(를) 지금부터 먹일 수 있어요`); sent[key] = now; changed = true; }
+      if (g.ready && !sent[key]) { remind('해열제 복용 가능', `${g.label}을(를) 지금부터 먹일 수 있어요`); sent[key] = now; changed = true; }
     }
     const rc = tempRecheck(child.id, now); const rk = `recheck:${rc?.med.id}`;
-    if (rc?.due && !sent[rk]) { notify('체온 다시 재기', `${child.name} 해열제 먹인 지 ${fmtDur(now - rc.med.start)} 지났어요. 열이 내렸는지 확인해 보세요`); sent[rk] = now; changed = true; }
+    if (rc?.due && !sent[rk]) { remind('체온 다시 재기', `${child.name} 해열제 먹인 지 ${fmtDur(now - rc.med.start)} 지났어요. 열이 내렸는지 확인해 보세요`); sent[rk] = now; changed = true; }
   }
   if (changed) { for (const k of Object.keys(sent)) if (now - sent[k] > 3 * DAY) delete sent[k]; setKV('notified', sent); }
 }
@@ -3672,13 +3702,13 @@ ACT.fbSend = async () => {
   const f = S.form.fb || {}; const t = document.getElementById('fb-text'); if (t) f.text = t.value;
   if (!(f.text || '').trim() && !f.kind) { toast('내용을 적어 주세요'); return; }
   const text = fbText();
-  try { if (navigator.share) { await navigator.share({ text }); toast('고마워요!'); return; } } catch (e) { if (e?.name === 'AbortError') return; }
+  try { if (NATIVE) { await nativeShareText(text); toast('고마워요!'); return; } if (navigator.share) { await navigator.share({ text }); toast('고마워요!'); return; } } catch (e) { if (e?.name === 'AbortError') return; }
   await copyText(text, '#fb-out');
 };
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.18.0';
+const APP_VERSION = '1.19.0';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -3797,10 +3827,13 @@ document.addEventListener('change', async (ev) => {
     render();
   }
 });
-document.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'Escape') return;
+/* 열린 창·화면 하나 닫기 (Esc 키, 안드로이드 뒤로 버튼). 닫은 게 있으면 true */
+function closeTop() {
   if (S.memShow) ACT.memClose(); else if (S.memPrompt) ACT.memLater(); else if (S.viewer) { S.viewer = null; render(); } else if (S.slotPick != null) ACT.slotClose(); else if (S.recPick) ACT.recClose(); else if (S.editor) ACT.closeEditor(); else if (S.stack.length) popPage();
-});
+  else return false;
+  return true;
+}
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeTop(); });
 
 /* 시작 */
 let hiddenAt = 0;
@@ -3826,7 +3859,7 @@ async function boot() {
 }
 function registerSW() {
   try {
-    const ok = 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost') && window.self === window.top && !window.YUAMOA_NO_SW;
+    const ok = !NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost') && window.self === window.top && !window.YUAMOA_NO_SW;
     if (ok) navigator.serviceWorker.register('sw.js').catch(() => {});
   } catch (e) { /* 미리보기 환경 등 */ }
 }
@@ -4621,6 +4654,7 @@ const asciiName = (name, fallback) => { const m = name.match(/\.([a-z0-9]+)$/i);
 async function saveFiles(files, zipName, { shareTitle = '육아모아' } = {}) {
   if (!files.length) return 'failed';
   zipName = asciiName(zipName, 'yuamoa');
+  if (NATIVE) return nativeSaveFiles(files, zipName, shareTitle);
   const dl = await downloadsCap();
   if (dl) {
     const one = files.length === 1;
@@ -5338,6 +5372,65 @@ function viewHospital(child) {
   h += visits.length ? `<div class="rec-list">${visits.map((x) => recRow(x, { showDate: true })).join('')}</div>` : `<div class="card empty">병원·접종 기록이 아직 없어요.</div>`;
   h += sectionTitle('지도 앱에서 찾기') + nearbyLinksHtml();
   return h;
+}
+
+/* ---- 24-native.js ---- */
+/* ===== 안드로이드·아이폰 앱 전용 (Capacitor) =====
+   웹앱 코드를 그대로 앱으로 감쌌을 때, 브라우저에서는 안 되는 것들을 휴대폰 기능으로 바꿔 준다.
+   - 알림: 앱이 꺼져 있어도 울리도록 미리 예약 (수유·낮잠·해열제·체온 다시 재기)
+   - 사진·백업 저장: 공유 창으로 넘겨 사진 앱·파일 앱에 저장
+   - 안드로이드 뒤로 버튼: 열린 창부터 닫기
+   웹(공개주소·Claude 링크)에서는 NATIVE가 false라 아무 일도 하지 않는다. */
+let _remindSig = '';
+async function nativeNotifyPermission() {
+  const LN = CAP('LocalNotifications'); if (!LN) return false;
+  try { let p = await LN.checkPermissions(); if (p.display !== 'granted') p = await LN.requestPermissions(); return p.display === 'granted'; } catch (e) { return false; }
+}
+async function nativeRemindSync() {
+  const LN = CAP('LocalNotifications'); if (!LN) return;
+  const plan = reminderPlan(); const sig = JSON.stringify(plan.map((x) => [x.id, Math.round(x.at / 60000)]));
+  if (sig === _remindSig) return; _remindSig = sig;
+  try {
+    const { notifications = [] } = await LN.getPending();
+    const ours = notifications.filter((x) => x.id >= 100 && x.id < 200);
+    if (ours.length) await LN.cancel({ notifications: ours.map((x) => ({ id: x.id })) });
+    if (plan.length) await LN.schedule({ notifications: plan.map((x) => ({ id: x.id, title: x.title, body: x.body, schedule: { at: new Date(x.at), allowWhileIdle: true } })) });
+  } catch (e) { _remindSig = ''; }
+}
+let _nowId = 1000;
+async function nativeNotifyNow(title, body) {
+  const LN = CAP('LocalNotifications'); if (!LN) return;
+  try { await LN.schedule({ notifications: [{ id: _nowId++ % 100000 + 1000, title, body, schedule: { at: new Date(Date.now() + 1000) } }] }); } catch (e) { /* 무시 */ }
+}
+const blobB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(blob); });
+async function nativeSaveFiles(files, zipName, title) {
+  const FS = CAP('Filesystem'), SH = CAP('Share'); if (!FS || !SH) return 'failed';
+  try {
+    // 사진은 낱장으로(공유 창에서 '이미지 저장'), 그 밖의 파일이 섞이면 zip 하나로
+    const pics = files.every((f) => /^image\//.test(f.blob.type || ''));
+    const list = pics || files.length === 1 ? files : [{ name: zipName, blob: await makeZip(files) }];
+    const uris = [];
+    for (const f of list) {
+      const path = `share/${Date.now()}-${asciiName(f.name, 'yuamoa')}`;
+      const r = await FS.writeFile({ path, data: await blobB64(f.blob), directory: 'CACHE', recursive: true });
+      uris.push(r.uri);
+    }
+    await SH.share({ title, files: uris, dialogTitle: '저장하거나 보낼 곳을 고르세요' });
+    return 'shared';
+  } catch (e) { return /cancel/i.test(e?.message || '') ? 'cancelled' : 'failed'; }
+}
+async function nativeShareText(text) { const SH = CAP('Share'); if (SH) await SH.share({ text, dialogTitle: '공유하기' }); }
+
+if (NATIVE) {
+  const App = CAP('App');
+  App?.addListener?.('backButton', () => {
+    if (closeTop()) return;
+    if (S.tab !== 'home') { S.tab = 'home'; render(); return; }
+    App.minimizeApp ? App.minimizeApp() : App.exitApp();
+  });
+  // 앱을 내릴 때 알림 예약을 최신으로
+  document.addEventListener('visibilitychange', () => { if (document.hidden) nativeRemindSync(); });
+  document.documentElement.classList.add('native');
 }
 
 /* ---- 99-boot.js ---- */
