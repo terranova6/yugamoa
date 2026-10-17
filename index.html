@@ -615,6 +615,10 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .near-tbl td { padding: 7px 10px; border-top: 1px solid var(--line); }
 .near-tbl .num { text-align: right; width: 34%; white-space: nowrap; }
 .near-tbl tr.hi td { color: var(--accent); font-weight: 700; }
+.near-filters { gap: 6px; } .near-filters .link-btn { margin-left: 4px; }
+.near-count { margin: 0 2px; }
+.near-tbl.kv td:first-child { color: var(--muted); width: 30%; white-space: nowrap; }
+.near-msg { background: var(--warn-soft); border-radius: 8px; padding: 6px 9px 6px 22px; margin: 0; }
 </style>
 </head>
 <body>
@@ -3619,7 +3623,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.14.3';
+const APP_VERSION = '1.15.0';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -4969,7 +4973,7 @@ ACT.crossRec = (el) => {
    - 중계 서버 주소는 비밀이 아니다. 인증키는 서버(Cloudflare Secret)에만 있다. */
 const CARE_API = (typeof window !== 'undefined' && window.YUAMOA_CONFIG?.api) || 'https://yugamoa-api.terranova6.workers.dev';
 const NEAR_TABS = [['er', '응급실'], ['ped', '소아과'], ['pharm', '약국']];
-S.near = S.near || { tab: 'er', status: 'idle', pos: null, region: null, data: {}, err: '', loading: {}, open: {}, detail: {} };
+S.near = S.near || { tab: 'er', status: 'idle', pos: null, region: null, data: {}, err: '', loading: {}, open: {}, detail: {}, filters: { er: [], ped: [], pharm: [] } };
 
 async function careFetch(route, params = {}) {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
@@ -5022,11 +5026,11 @@ async function nearLoadTab(tab) {
       if (!list.length && N.region.sgg.includes(' ')) list = await ask(N.region.sgg.split(' ')[0]);
       N.data.ped = list.map((x) => {
         const la = +x.wgs84Lat, lo = +x.wgs84Lon; const st = careOpenState(x[`dutyTime${day}s`], x[`dutyTime${day}c`], now);
-        return { id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: la, lon: lo, km: la && lo ? distKm(lat, lon, la, lo) : 99, kind: x.dutyDivNam || x.dutyDivName, open: x[`dutyTime${day}s`] ? st : { state: 'closed', text: '오늘 휴진' }, er: x.dutyEryn === '1' };
+        return { id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: la, lon: lo, km: la && lo ? distKm(lat, lon, la, lo) : 99, kind: x.dutyDivNam || x.dutyDivName, open: x[`dutyTime${day}s`] ? st : { state: 'closed', text: '오늘 휴진' }, er: x.dutyEryn === '1', week: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((k) => [k, x[`dutyTime${k}s`] ? [x[`dutyTime${k}s`], x[`dutyTime${k}c`]] : null])) };
       }).sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km).slice(0, 40);
     } else {
       const list = await careFetch('pharm-near', { WGS84_LAT: lat, WGS84_LON: lon, numOfRows: 40 });
-      N.data.pharm = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), open: x.startTime ? careOpenState(x.startTime, x.endTime, now) : { state: 'closed', text: '오늘 쉬어요' } }))
+      N.data.pharm = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), open: x.startTime ? careOpenState(x.startTime, x.endTime, now) : { state: 'closed', text: '오늘 쉬어요' }, end: hhmmMin(x.endTime), start: hhmmMin(x.startTime) }))
         .sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km);
     }
   } catch (e) { N.data[tab] = { error: e.name === 'AbortError' ? '응답이 늦어요. 잠시 뒤 다시 해 주세요' : e.message || '불러오지 못했어요' }; }
@@ -5042,17 +5046,18 @@ async function nearDetailLoad(tab, x) {
   const N = S.near; const key = tab + ':' + x.id; if (N.detail[key]) return;
   const D_ = N.detail[key] = { status: 'loading' }; render();
   const egen = careFetch(tab === 'er' ? 'er-info' : 'hosp-info', { HPID: x.id }).then((l) => l[0] || null).catch(() => null);
+  const msgs = tab === 'er' ? careFetch('er-msg', { HPID: x.id, numOfRows: 20 }).catch(() => []) : Promise.resolve([]);
   let hira = null;
   try {
     const cands = x.lat && x.lon ? await careFetch('hira-hosp', { xPos: x.lon, yPos: x.lat, radius: 300, numOfRows: 30 }) : [];
     const want = normName(x.name);
     const hit = cands.find((c) => normName(c.yadmNm) === want) || cands.find((c) => { const n = normName(c.yadmNm); return n && (n.includes(want) || want.includes(n)); });
     if (hit) {
-      const [dept, equip, spcl, ev] = await Promise.all(['hira-dept', 'hira-equip', 'hira-spcl', 'hira-eval'].map((r) => careFetch(r, { ykiho: hit.ykiho, numOfRows: 100 }).then((l) => Array.isArray(l) ? l : null).catch(() => null)));
-      hira = { basic: hit, dept, equip, spcl, eval: ev };
+      const [dept, equip, spcl, ev, dtl] = await Promise.all(['hira-dept', 'hira-equip', 'hira-spcl', 'hira-eval', 'hira-detail'].map((r) => careFetch(r, { ykiho: hit.ykiho, numOfRows: 100 }).then((l) => Array.isArray(l) ? l : null).catch(() => null)));
+      hira = { basic: hit, dept, equip, spcl, eval: ev, dtl: dtl?.[0] || null };
     }
   } catch (e) { /* 심평원 정보 없이 표시 */ }
-  Object.assign(D_, { status: 'ok', egen: await egen, hira }); render();
+  Object.assign(D_, { status: 'ok', egen: await egen, hira, msgs: await msgs }); render();
 }
 function nearDetailHtml(tab, x) {
   const D_ = S.near.detail[tab + ':' + x.id];
@@ -5086,6 +5091,16 @@ function nearDetailHtml(tab, x) {
   // 우수기관 평가정보
   const ev = (hira?.eval || []).map((it) => { const ent = Object.entries(it); const name = it.asmNm || it.asmItmNm || pickNm(it); const val = it.asmGrd || it.grdNm || it.asmRslt || ent.find(([k]) => /Grd|Rslt|Yn$/.test(k))?.[1] || ''; return { name, val }; }).filter((d) => d.name);
   h += sec('우수기관 평가정보', ev.length ? table(['평가항목', '평가정보'], ev.map((d) => ({ cells: [d.name, d.val || '우수기관'] }))) : '');
+  // 진료 안내 (심평원 세부정보)
+  const dt = hira?.dtl;
+  if (dt) {
+    const rows = [['평일 접수', dt.rcvWeek], ['토요일 접수', dt.rcvSat], ['점심시간', dt.lunchWeek], ['일요일', dt.noTrmtSun], ['공휴일', dt.noTrmtHoli],
+      ['주차', dt.parkQty ? `${dt.parkQty}대${dt.parkXpnsYn === 'Y' ? ' (유료)' : dt.parkXpnsYn === 'N' ? ' (무료)' : ''}` : ''], ['야간 응급', dt.emyNgtYn === 'Y' ? (dt.emyNgtTelNo1 || '운영') : '']].filter(([, v]) => v && String(v).trim());
+    h = sec('진료 안내', rows.length ? `<table class="near-tbl kv"><tbody>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` : '') + h;
+  }
+  // 응급실 진료 제한 안내 (실시간 메시지)
+  const msgList = (D_.msgs || []).map((m) => m.symBlkMsg || Object.entries(m).filter(([k]) => /Msg$/i.test(k)).map(([, v]) => v).sort((a, b) => b.length - a.length)[0]).filter((t) => t && t.trim());
+  if (msgList.length) h = sec('응급실 안내 (실시간)', `<ul class="plain small near-msg">${[...new Set(msgList)].slice(0, 6).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`) + h;
   if (egen?.dutyInf && egen.dutyInf.replace(/[-\s.]/g, '')) h = sec('병원 안내', `<p class="small near-inf">${esc(egen.dutyInf.replace(/^[-\s]+/, ''))}</p>`) + h;
   if (egen?.dutyHano && +egen.dutyHano) h += sec('입원 병상', `<p class="small">${+egen.dutyHano}개</p>`);
   if (b?.hospUrl && /^https?:\/\//.test(b.hospUrl)) h += `<a class="small" href="${esc(b.hospUrl)}" target="_blank" rel="noopener">병원 홈페이지 ↗</a>`;
@@ -5097,6 +5112,28 @@ ACT.nearMore = (el) => {
   N.open[k] = !N.open[k]; render();
   if (N.open[k]) { const x = (N.data[tab] || []).find((y) => y.id === id); if (x) nearDetailLoad(tab, x); }
 };
+
+
+/* --- 조건 필터 (여러 개 고르면 모두 맞는 곳만) --- */
+const nightEnd = (pair) => { if (!pair) return false; const a = hhmmMin(pair[0]), b = hhmmMin(pair[1]); return b != null && (b >= 20 * 60 || (a != null && b < a)); };
+const NEAR_FILTERS = {
+  er: [['kid', '소아 병상 있음', (x) => bedInfo(x.bed?.hv28)?.n > 0], ['room', '응급실 병상 여유', (x) => bedInfo(x.bed?.hvec)?.n > 0],
+    ['center', '응급의료센터', (x) => /센터/.test(x.kind || '')], ['ct', 'CT 가능', (x) => x.bed?.hvctayn === 'Y'], ['venti', '소아 인공호흡기', (x) => x.bed?.hvventisoayn === 'Y']],
+  ped: [['open', '지금 진료 중', (x) => x.open.state === 'open' || x.open.state === 'closing'], ['night', '오늘 밤 8시 이후', (x) => nightEnd(x.week?.[careDayNo()])],
+    ['sat', '토요일 진료', (x) => !!x.week?.[6]], ['sun', '일요일 진료', (x) => !!x.week?.[7]], ['holi', '공휴일 진료', (x) => !!x.week?.[8]], ['er', '응급실 있음', (x) => x.er]],
+  pharm: [['open', '지금 문 연 곳', (x) => x.open.state === 'open' || x.open.state === 'closing'], ['late', '밤 10시 이후', (x) => x.end != null && (x.end >= 22 * 60 || (x.start != null && x.end < x.start))], ['near', '1km 안', (x) => x.km <= 1]],
+};
+function nearFiltered(tab, list) {
+  const on = S.near.filters[tab] || []; if (!on.length) return list;
+  const fns = NEAR_FILTERS[tab].filter(([k]) => on.includes(k)).map(([, , f]) => f);
+  return list.filter((x) => fns.every((f) => { try { return f(x); } catch (e) { return false; } }));
+}
+function nearFilterBar(tab) {
+  const on = S.near.filters[tab] || [];
+  return `<div class="chips near-filters">${NEAR_FILTERS[tab].map(([k, l]) => chip(l, on.includes(k), 'nearFilter', k, '', 'var(--accent)')).join('')}${on.length ? `<button type="button" class="link-btn small" data-act="nearFilterClear">필터 지우기</button>` : ''}</div>`;
+}
+ACT.nearFilter = (el) => { const f = S.near.filters; const t = S.near.tab; const k = el.dataset.a; f[t] = f[t].includes(k) ? f[t].filter((x) => x !== k) : [...f[t], k]; render(); };
+ACT.nearFilterClear = () => { S.near.filters[S.near.tab] = []; render(); };
 
 const kmText = (km) => km >= 99 ? '' : km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`;
 const OPEN_PILL = { open: 'ok', closing: 'warn', before: '', unknown: '', closed: '' };
@@ -5135,8 +5172,12 @@ function pageNearby() {
     else if (d.error) h += `<div class="card stack"><b>${esc(d.error)}</b>${btn('다시 시도', 'nearRetry', { cls: 'sm' })}</div>`;
     else if (!d.length) h += `<div class="card empty">${N.tab === 'ped' ? '이 지역에서 소아청소년과를 찾지 못했어요. 아래 지도 앱으로 더 넓게 찾아보세요.' : '주변에서 찾지 못했어요.'}</div>`;
     else {
-      if (N.tab === 'er') h += `<p class="small muted near-hint">가까운 순이에요. <b>소아 병상</b>은 응급실 안의 소아 전용 병상 수예요. 병상 수는 병원이 입력한 값이라 실제와 다를 수 있어요.</p>` + d.map(nearErCard).join('');
-      else h += `<p class="small muted near-hint">${N.tab === 'ped' ? '지금 진료 중인 곳을 먼저, 가까운 순으로 보여 줘요. 같은 시·군·구 안의 소아청소년과예요.' : '지금 문 연 약국을 먼저, 가까운 순으로 보여 줘요.'} 공휴일·점심시간은 다를 수 있어요.</p>` + d.map(nearOpenCard).join('');
+      const all = d; const fl = nearFiltered(N.tab, all); const fOn = (N.filters[N.tab] || []).length;
+      h += nearFilterBar(N.tab);
+      if (fOn) h += `<p class="small near-count"><b>${fl.length}곳</b>이 조건에 맞아요 <span class="muted">(전체 ${all.length}곳)</span></p>`;
+      if (!fl.length) h += `<div class="card empty">조건에 맞는 곳이 없어요. 필터를 줄여 보세요.</div>`;
+      else if (N.tab === 'er') h += `<p class="small muted near-hint">가까운 순이에요. <b>소아 병상</b>은 응급실 안의 소아 전용 병상 수예요. 병상 수는 병원이 입력한 값이라 실제와 다를 수 있어요.</p>` + fl.map(nearErCard).join('');
+      else h += `<p class="small muted near-hint">${N.tab === 'ped' ? '지금 진료 중인 곳을 먼저, 가까운 순으로 보여 줘요. 같은 시·군·구 안의 소아청소년과예요.' : '지금 문 연 약국을 먼저, 가까운 순으로 보여 줘요.'} 공휴일·점심시간은 다를 수 있어요.</p>` + fl.map(nearOpenCard).join('');
     }
   }
   h += `<p class="tiny muted">자료: 국립중앙의료원 응급의료정보(공공데이터포털). 실제 운영 상황과 다를 수 있으니 출발 전에 전화로 확인하세요. 위치는 주변 검색에만 쓰고 저장하지 않아요.</p></div>`;
