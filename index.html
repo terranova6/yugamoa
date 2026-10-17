@@ -594,6 +594,16 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 .dev-ans button.a1[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .dev-ans button.a0[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; font-weight: 600; }
 .dev-tips li { margin: 4px 0; }
+
+/* 지금 갈 수 있는 곳 */
+.near-119 a { color: inherit; text-decoration: underline; }
+.near-seg { margin-top: 2px; }
+.near-card { display: grid; gap: 6px; }
+.near-card.dim { opacity: .62; }
+.near-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.near-act { display: flex; gap: 8px; margin-top: 2px; }
+.near-act .btn { text-decoration: none; color: var(--ink); min-height: 38px; padding: 8px 14px; }
+.near-hint { margin: 2px 2px 0; }
 </style>
 </head>
 <body>
@@ -764,6 +774,7 @@ const ICONS = {
   heart: _i('<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>'),
   heartOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   chat: _i('<path d="M4 5h16v11H9l-5 4z"/>'),
+  phone: _i('<path d="M6.5 3.5h3l1.5 4-2 1.3a11 11 0 0 0 6.2 6.2l1.3-2 4 1.5v3a2 2 0 0 1-2.2 2A17 17 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z"/>'),
   calendar: _i('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
   mic: _i('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
   book: _i('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/>'),
@@ -1968,6 +1979,29 @@ const DEV_STATUS = {
   partial: ['아직 답하지 않은 항목이 있어요', ''], none: ['아직 확인하지 않았어요', ''],
 };
 
+/* --- 주변 의료기관 (공공데이터) 계산 --- */
+// 요일 번호: 공공데이터 기준 1=월 … 7=일
+function careDayNo(ts = Date.now()) { return ((new Date(ts).getDay() + 6) % 7) + 1; }
+const hhmmMin = (v) => { const n = parseInt(String(v || '').replace(/\D/g, ''), 10); return Number.isFinite(n) ? Math.floor(n / 100) * 60 + (n % 100) : null; };
+const minText = (m) => m == null ? '' : `${pad(Math.floor((m % 1440) / 60))}:${pad(m % 60)}`;
+// 지금 진료 중인지: s·e는 "0900"·"1830" 같은 시각. 끝이 시작보다 작거나 24시를 넘으면 다음 날까지로 본다
+function careOpenState(s, e, ts = Date.now()) {
+  const a = hhmmMin(s), b0 = hhmmMin(e); if (a == null || b0 == null || a === b0) return { state: 'unknown', text: '진료시간 정보 없음' };
+  const b = b0 <= a ? b0 + 1440 : b0; const d = new Date(ts); let n = d.getHours() * 60 + d.getMinutes(); if (n < a && b > 1440 && n + 1440 < b) n += 1440;
+  const hours = `${minText(a)}~${minText(b)}`;
+  if (n >= a && n < b) return b - n <= 30 ? { state: 'closing', text: `${minText(b)} 마감`, hours } : { state: 'open', text: '진료 중', hours };
+  return n < a ? { state: 'before', text: `${minText(a)}에 열어요`, hours } : { state: 'closed', text: '오늘 진료 끝', hours };
+}
+function distKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, r = (x) => (x * Math.PI) / 180; const dLat = r(lat2 - lat1), dLon = r(lon2 - lon1);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h));
+}
+const OPEN_RANK = { open: 0, closing: 1, before: 2, unknown: 3, closed: 4 };
+// 응급실 병상 값: 숫자면 그대로, 0 이하면 "여유 없음"
+function bedInfo(v) { const n = parseInt(v, 10); if (!Number.isFinite(n)) return null; return { n, full: n <= 0 }; }
+// 기준 시각 "20261017101500" → 10:15
+const egenTime = (v) => { const m = String(v || '').match(/^\d{8}(\d{2})(\d{2})/); return m ? `${m[1]}:${m[2]}` : ''; };
+
 /* ---- 07-ui.js ---- */
 /* ===== 화면 상태 & 공통 컴포넌트 ===== */
 const S = {
@@ -2742,7 +2776,7 @@ function viewHealth(child) {
   h += `<div class="menu">
     ${menuItem('report', '진료 리포트', '', 'push', 'report', 'var(--c-hospital)')}
     ${menuItem('fire', '병원에 가야 할 때', '', 'push', 'feverGuide', 'var(--c-temp)')}
-    ${menuItem('map', '가까운 소아과 찾기', '', 'push', 'nearby', 'var(--c-water)')}
+    ${menuItem('map', '지금 갈 수 있는 곳', '응급실·소아과·약국', 'push', 'nearby', 'var(--c-water)')}
     ${menuItem('med', '해열제 용량', '', 'push', 'medCalc', 'var(--c-med)')}
     ${menuItem('med', '같이 먹여도 될까?', '해열제 교차복용', 'push', 'medCross', 'var(--c-med)')}
   </div>`;
@@ -2787,11 +2821,11 @@ function pageFeverGuide() {
       <li>해열제는 아이가 힘들어할 때 먹이고, 1시간쯤 뒤 다시 재 보세요.</li><li>열의 숫자보다 아이가 잘 먹고 잘 노는지가 더 중요한 신호예요.</li>
       <li>소변 횟수를 기저귀 기록으로 남겨 두면 탈수를 확인하기 쉬워요.</li></ul></div>
     <div class="notice">밤·휴일에는 <b>달빛어린이병원</b>(야간·휴일 소아 진료)이나 응급실을 이용할 수 있어요. 응급 상황은 119에 연락하세요.</div>
-    ${btn('근처 소아과·야간 진료 찾기', 'push', { a: 'nearby', cls: 'primary block' })}</div>`;
+    ${btn('지금 갈 수 있는 응급실·소아과 찾기', 'push', { a: 'nearby', cls: 'primary block' })}</div>`;
 }
 
-/* --- 근처 병원 찾기 (지도 앱 연결) --- */
-function pageNearby() {
+/* --- 지도 앱 연결 (실시간 찾기 화면 아래에 함께 표시) --- */
+function nearbyLinksHtml() {
   const q = encodeURIComponent('소아청소년과');
   const links = [
     ['카카오맵에서 소아청소년과 찾기', `https://map.kakao.com/?q=${q}`, '현재 위치 주변 병원과 진료 시간'],
@@ -2800,7 +2834,7 @@ function pageNearby() {
     ['달빛어린이병원 찾기', `https://map.naver.com/p/search/${encodeURIComponent('달빛어린이병원')}`, '밤·휴일 소아 경증 진료 병원'],
     ['똑닥 (진료 접수·예약)', 'https://ddocdoc.com/', '똑닥 제휴 병원 모바일 접수는 똑닥 앱에서'],
   ];
-  return pageHead('근처 소아과 찾기') + `<div class="stack"><div class="menu">${links.map(([t, u, s]) => `<a href="${u}" target="_blank" rel="noopener"><span class="mi" style="--tone:var(--c-water)">${ICONS.map}</span><span class="grow"><b>${esc(t)}</b><br><span class="small muted">${esc(s)}</span></span><span class="chev">↗</span></a>`).join('')}</div>
+  return `<div class="stack"><div class="menu">${links.map(([t, u, s]) => `<a href="${u}" target="_blank" rel="noopener"><span class="mi" style="--tone:var(--c-water)">${ICONS.map}</span><span class="grow"><b>${esc(t)}</b><br><span class="small muted">${esc(s)}</span></span><span class="chev">↗</span></a>`).join('')}</div>
     <p class="small muted">병원 접수·예약은 병원과 계약한 서비스(똑닥 등)에서만 할 수 있어 해당 앱으로 연결해요. 진료 전에 <b>진료용 요약 리포트</b>를 열어 두면 의사에게 경과를 보여주기 좋아요.</p>
     ${btn('진료용 요약 리포트 열기', 'push', { a: 'report', cls: 'block' })}</div>`;
 }
@@ -3574,7 +3608,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.13.1';
+const APP_VERSION = '1.14.0';
 const TABS = [['home', '홈', 'home'], ['timeline', '타임라인', 'timeline'], ['rec', '기록', 'plus'], ['album', '앨범', 'photo'], ['health', '건강', 'health']];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
@@ -4917,6 +4951,123 @@ ACT.crossRec = (el) => {
   d.data.category = '해열제'; fillMedFrom(d, lastMedLike(child.id, { ingredient: ing }), ing); d.data.ingredient = ing;
   openEditor(d, false);
 };
+
+/* ---- 22-nearby.js ---- */
+/* ===== 지금 갈 수 있는 곳: 응급실 · 소아과 · 약국 (공공데이터, 중계 서버 경유) =====
+   - 위치는 주변 검색에만 쓰고 저장하지 않는다.
+   - 중계 서버 주소는 비밀이 아니다. 인증키는 서버(Cloudflare Secret)에만 있다. */
+const CARE_API = (typeof window !== 'undefined' && window.YUAMOA_CONFIG?.api) || 'https://yugamoa-api.terranova6.workers.dev';
+const NEAR_TABS = [['er', '응급실'], ['ped', '소아과'], ['pharm', '약국']];
+S.near = S.near || { tab: 'er', status: 'idle', pos: null, region: null, data: {}, err: '', loading: {} };
+
+async function careFetch(route, params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(`${CARE_API}/${route}${qs ? '?' + qs : ''}`, { signal: ctl.signal });
+    const text = await r.text();
+    if (text.trim().startsWith('{')) { const j = JSON.parse(text); if (j.error) throw new Error(j.error); return j; }
+    const doc = new DOMParser().parseFromString(text, 'text/xml');
+    const code = doc.querySelector('resultCode')?.textContent;
+    if (code && code !== '00') throw new Error(doc.querySelector('resultMsg')?.textContent || '공공데이터 오류');
+    return [...doc.querySelectorAll('item')].map((it) => Object.fromEntries([...it.children].map((c) => [c.tagName, c.textContent.trim()])));
+  } finally { clearTimeout(t); }
+}
+function nearLocate() {
+  return new Promise((res, rej) => {
+    if (!navigator.geolocation) { rej(new Error('이 브라우저는 위치를 쓸 수 없어요')); return; }
+    navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      (e) => rej(new Error(e.code === 1 ? '위치 권한이 꺼져 있어요' : '현재 위치를 찾지 못했어요')), { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * MIN });
+  });
+}
+async function nearStart() {
+  const N = S.near; N.status = 'locating'; N.err = ''; N.data = {}; render();
+  try {
+    N.pos = await nearLocate(); N.status = 'loading'; render();
+    const rg = await careFetch('region', { x: N.pos.lon, y: N.pos.lat });
+    const d = (rg.documents || []).find((x) => x.region_type === 'H') || (rg.documents || [])[0];
+    N.region = d ? { sido: d.region_1depth_name, sgg: d.region_2depth_name } : null;
+    N.status = 'ok'; N.at = Date.now(); render();
+    await nearLoadTab(N.tab);
+  } catch (e) { N.status = 'error'; N.err = e.name === 'AbortError' ? '응답이 늦어요. 잠시 뒤 다시 해 주세요' : e.message || '불러오지 못했어요'; render(); }
+}
+async function nearLoadTab(tab) {
+  const N = S.near; if (!N.pos || N.data[tab] || N.loading[tab]) return;
+  N.loading[tab] = true; render();
+  try {
+    const { lat, lon } = N.pos; const now = Date.now();
+    if (tab === 'er') {
+      const [list, beds] = await Promise.all([
+        careFetch('er-near', { WGS84_LAT: lat, WGS84_LON: lon, numOfRows: 15 }),
+        N.region ? careFetch('er-beds', { STAGE1: N.region.sido, numOfRows: 300 }).catch(() => []) : Promise.resolve([]),
+      ]);
+      const bed = Object.fromEntries(beds.map((b) => [b.hpid, b]));
+      N.data.er = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: bed[x.hpid]?.dutyTel3 || x.dutyTel1, telMain: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), kind: x.dutyDivName, bed: bed[x.hpid] || null }))
+        .sort((a, b) => a.km - b.km);
+    } else if (tab === 'ped') {
+      if (!N.region) throw new Error('지역을 확인하지 못했어요');
+      const day = careDayNo(now); const ask = (sgg) => careFetch('hosp-list', { Q0: N.region.sido, Q1: sgg, QD: 'D002', QT: day, numOfRows: 300 });
+      let list = await ask(N.region.sgg);
+      if (!list.length && N.region.sgg.includes(' ')) list = await ask(N.region.sgg.split(' ')[0]);
+      N.data.ped = list.map((x) => {
+        const la = +x.wgs84Lat, lo = +x.wgs84Lon; const st = careOpenState(x[`dutyTime${day}s`], x[`dutyTime${day}c`], now);
+        return { id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: la, lon: lo, km: la && lo ? distKm(lat, lon, la, lo) : 99, kind: x.dutyDivNam || x.dutyDivName, open: x[`dutyTime${day}s`] ? st : { state: 'closed', text: '오늘 휴진' }, er: x.dutyEryn === '1' };
+      }).sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km).slice(0, 40);
+    } else {
+      const list = await careFetch('pharm-near', { WGS84_LAT: lat, WGS84_LON: lon, numOfRows: 40 });
+      N.data.pharm = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), open: x.startTime ? careOpenState(x.startTime, x.endTime, now) : { state: 'closed', text: '오늘 쉬어요' } }))
+        .sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km);
+    }
+  } catch (e) { N.data[tab] = { error: e.name === 'AbortError' ? '응답이 늦어요. 잠시 뒤 다시 해 주세요' : e.message || '불러오지 못했어요' }; }
+  N.loading[tab] = false; render();
+}
+const kmText = (km) => km >= 99 ? '' : km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`;
+const OPEN_PILL = { open: 'ok', closing: 'warn', before: '', unknown: '', closed: '' };
+function nearActions(x) {
+  const tel = (x.tel || '').replace(/[^\d-]/g, '');
+  return `<div class="near-act">${tel ? `<a class="btn sm" href="tel:${tel}">${ICONS.phone || ''}전화</a>` : ''}${x.lat && x.lon ? `<a class="btn sm" href="https://map.kakao.com/link/to/${encodeURIComponent(x.name)},${x.lat},${x.lon}" target="_blank" rel="noopener">${ICONS.map}길찾기</a>` : ''}</div>`;
+}
+function nearErCard(x) {
+  const b = x.bed; const ec = b ? bedInfo(b.hvec) : null; const kid = b ? bedInfo(b.hv28) : null; const nicu = b ? bedInfo(b.hvncc) : null;
+  const chips = [];
+  if (ec) chips.push(pill(ec.full ? '응급실 병상 여유 없음' : `응급실 빈 병상 ${ec.n}`, ec.full ? 'danger' : 'ok'));
+  if (kid) chips.push(pill(kid.full ? '소아 병상 여유 없음' : `소아 병상 ${kid.n}`, kid.full ? 'warn' : 'ok'));
+  if (nicu && !nicu.full) chips.push(pill(`신생아 중환자실 ${nicu.n}`, ''));
+  return `<div class="card near-card"><div class="spread"><b>${esc(x.name)}</b><span class="small muted num">${kmText(x.km)}</span></div>
+    <span class="small muted">${esc(x.kind || '')}${b?.hvidate ? ` · ${egenTime(b.hvidate)} 기준` : ''}</span>
+    ${chips.length ? `<div class="near-chips">${chips.join('')}</div>` : '<span class="small muted">실시간 병상 정보가 없어요</span>'}
+    <span class="small">${esc(x.addr || '')}</span>${nearActions(x)}</div>`;
+}
+function nearOpenCard(x) {
+  return `<div class="card near-card${x.open.state === 'closed' ? ' dim' : ''}"><div class="spread"><b>${esc(x.name)}</b><span class="small muted num">${kmText(x.km)}</span></div>
+    <div class="near-chips">${pill(x.open.text, OPEN_PILL[x.open.state])}${x.open.hours ? `<span class="small muted">오늘 ${x.open.hours}</span>` : ''}${x.er ? pill('응급실 있음', '') : ''}</div>
+    <span class="small">${esc(x.addr || '')}</span>${nearActions(x)}</div>`;
+}
+function pageNearby() {
+  const N = S.near; if (N.status === 'idle') setTimeout(() => { if (S.near.status === 'idle') nearStart(); }, 0);
+  let h = pageHead('지금 갈 수 있는 곳') + `<div class="stack">`;
+  h += `<div class="notice danger near-119"><b>숨쉬기 힘들어하거나, 경련, 의식이 흐린 경우</b>에는 찾지 말고 바로 <a href="tel:119"><b>119</b></a>에 전화하세요.</div>`;
+  h += `<div class="seg near-seg" role="group">${NEAR_TABS.map(([k, l]) => `<button type="button" aria-pressed="${N.tab === k}" data-act="nearTab" data-a="${k}">${l}</button>`).join('')}</div>`;
+  if (N.status === 'locating' || N.status === 'idle') h += `<div class="card empty">현재 위치를 확인하는 중이에요…</div>`;
+  else if (N.status === 'loading') h += `<div class="card empty">주변 정보를 불러오는 중이에요…</div>`;
+  else if (N.status === 'error') h += `<div class="card stack"><b>${esc(N.err)}</b><span class="small muted">${N.err.includes('권한') ? '휴대폰 설정에서 이 앱(또는 브라우저)의 위치 권한을 켜면 주변을 찾을 수 있어요. 아래 지도 앱으로 찾아도 돼요.' : '인터넷 연결을 확인하거나 아래 지도 앱으로 찾아보세요.'}</span>${btn('다시 시도', 'nearRetry', { cls: 'sm' })}</div>`;
+  else {
+    const d = N.data[N.tab];
+    h += `<div class="spread small muted"><span>${N.region ? `${esc(N.region.sido)} ${esc(N.region.sgg)} 주변` : '내 주변'}${N.at ? ` · ${fmtHM(N.at)} 기준` : ''}</span>${btn('새로고침', 'nearRetry', { cls: 'sm' })}</div>`;
+    if (N.loading[N.tab] || !d) h += `<div class="card empty">불러오는 중이에요…</div>`;
+    else if (d.error) h += `<div class="card stack"><b>${esc(d.error)}</b>${btn('다시 시도', 'nearRetry', { cls: 'sm' })}</div>`;
+    else if (!d.length) h += `<div class="card empty">${N.tab === 'ped' ? '이 지역에서 소아청소년과를 찾지 못했어요. 아래 지도 앱으로 더 넓게 찾아보세요.' : '주변에서 찾지 못했어요.'}</div>`;
+    else {
+      if (N.tab === 'er') h += `<p class="small muted near-hint">가까운 순이에요. <b>소아 병상</b>은 응급실 안의 소아 전용 병상 수예요. 병상 수는 병원이 입력한 값이라 실제와 다를 수 있어요.</p>` + d.map(nearErCard).join('');
+      else h += `<p class="small muted near-hint">${N.tab === 'ped' ? '지금 진료 중인 곳을 먼저, 가까운 순으로 보여 줘요. 같은 시·군·구 안의 소아청소년과예요.' : '지금 문 연 약국을 먼저, 가까운 순으로 보여 줘요.'} 공휴일·점심시간은 다를 수 있어요.</p>` + d.map(nearOpenCard).join('');
+    }
+  }
+  h += `<p class="tiny muted">자료: 국립중앙의료원 응급의료정보(공공데이터포털). 실제 운영 상황과 다를 수 있으니 출발 전에 전화로 확인하세요. 위치는 주변 검색에만 쓰고 저장하지 않아요.</p></div>`;
+  h += sectionTitle('지도 앱에서 찾기') + nearbyLinksHtml();
+  return h;
+}
+ACT.nearTab = (el) => { S.near.tab = el.dataset.a; render(); nearLoadTab(S.near.tab); };
+ACT.nearRetry = () => { S.near.status = 'idle'; nearStart(); };
 
 /* ---- 99-boot.js ---- */
 /* ===== 시작 (모든 코드가 읽힌 뒤 실행) ===== */
