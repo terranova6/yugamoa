@@ -126,7 +126,8 @@ h3 { font-size: 1rem; }
 .btn.danger { background: var(--danger-soft); color: var(--danger); }
 .btn.block { width: 100%; }
 .btn.sm { min-height: 34px; padding: 6px 12px; font-size: .85rem; border-radius: 10px; }
-.btn:disabled { opacity: .45; }
+.btn:disabled, .btn.disabled { opacity: .45; }
+.btn.disabled { pointer-events: none; }
 .seg { display: flex; background: var(--surface-2); border-radius: 12px; padding: 3px; gap: 3px; }
 .seg button { flex: 1; border: 0; background: none; border-radius: 9px; padding: 8px 4px; font-size: .86rem; color: var(--muted); min-height: 36px; }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
@@ -699,11 +700,28 @@ function fmtClock(ms) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   return h ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
 }
+/* 지난 시간: 하루 안에는 분 단위까지(약 간격 확인용), 그 뒤는 짧게. 일주일이 넘으면 날짜로 */
 function ago(ts, now = Date.now()) {
   const diff = now - ts;
-  if (diff < MIN) return '방금 전';
   if (diff < 0) return fmtTime(ts);
-  return fmtDur(diff) + ' 전';
+  if (diff < MIN) return '방금 전';
+  if (diff < 2 * DAY) return fmtDur(diff) + ' 전';
+  if (diff < 7 * DAY) return `${Math.floor(diff / DAY)}일 전`;
+  const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+/* 오류를 사용자가 이해할 수 있는 말로. 이미 한글 안내면 그대로 쓰고, 영어·기술 문구는 원인별 안내로 바꾼다 */
+function friendlyError(e, fallback = '잠시 뒤 다시 해 주세요') {
+  const msg = String((e && (e.message || e)) || '');
+  const name = e && e.name;
+  if (name === 'AbortError' || /timeout|timed out/i.test(msg)) return '응답이 늦어요. 잠시 뒤 다시 해 주세요';
+  if (name === 'QuotaExceededError' || /quota/i.test(msg) && !/SERVICE_REQUESTS/i.test(msg)) return '휴대폰 저장 공간이 부족해요. 사진이나 앱을 정리한 뒤 다시 해 주세요';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return '인터넷에 연결되어 있지 않아요. 연결을 확인해 주세요';
+  if (/failed to fetch|networkerror|load failed|network request failed|err_|cors/i.test(msg)) return '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요';
+  if (/LIMITED_NUMBER_OF_SERVICE_REQUESTS|EXCEEDS|^22$/i.test(msg)) return '오늘 조회가 많아 공공데이터 서버가 잠시 막혔어요. 아래 지도 앱이나 응급의료포털로 찾아 주세요';
+  if (/SERVICE_KEY|NOT_REGISTERED|등록되지 않은 서비스키|DEADLINE|SERVICE ERROR|NO_OPENAPI|SERVICE_ACCESS_DENIED/i.test(msg)) return '공공데이터 서비스를 잠시 쓸 수 없어요. 아래 지도 앱으로 찾아 주세요';
+  if (/permission|insufficient/i.test(msg)) return '권한이 없어 연결하지 못했어요. 가족 코드를 다시 확인해 주세요';
+  if (/[가-힣]/.test(msg) && msg.length <= 120) return msg;
+  return fallback;
 }
 function fmtNum(v, digits = 1) { if (v == null || isNaN(v)) return '-'; return Number(v).toFixed(digits).replace(/\.0+$/, ''); }
 
@@ -943,7 +961,6 @@ const CARE_BANDS = [
   { from: 24, to: 999, label: '두 돌 이후', rules: ['열이 3일(72시간) 넘게 이어지면 진료를 받아요.', '40℃ 이상이 반복되면 진료를 받아요.', '숨이 1분에 40번보다 빠르면 진료를 받아요.'] },
 ];
 const CARE_FEVER_HOURS = (m) => m < 24 ? 24 : 72;           // AAP: 2세 미만 24시간, 2세 이상 3일
-const CARE_BREATH_MAX = (m) => m < 6 ? 60 : m < 12 ? 50 : 40; // 1분 호흡수
 /* 나이와 상관없이 바로 119·응급실 */
 const CARE_EMERGENCY = [
   '경련(경기)을 해요',
@@ -1259,8 +1276,14 @@ function syncOn() { return !!(D.kv.sync && D.kv.sync.familyId); }
 function kv(key, def) { return D.kv[key] === undefined ? def : D.kv[key]; }
 
 function activeChild() { return D.children.find((c) => c.id === D.kv.activeChildId) || D.children[0] || null; }
+/* 한 번 그리는 동안(render)에는 같은 아이의 기록 목록을 한 번만 걸러 정렬해서 다시 쓴다.
+   그리는 중에는 기록이 바뀌지 않으므로 안전하고, 그리기가 끝나면 비운다(그 밖에서는 항상 새로 계산). 돌려받은 배열을 직접 바꾸지 말 것 */
+let _recMemo = null;
 function childRecs(cid = activeChild()?.id) {
-  return D.records.filter((r) => !r.deleted && r.childId === cid && r.type !== 'comment').sort((a, b) => a.start - b.start); // 댓글·하트는 기록 목록에서 뺌
+  if (_recMemo && _recMemo.has(cid)) return _recMemo.get(cid);
+  const out = D.records.filter((r) => !r.deleted && r.childId === cid && r.type !== 'comment').sort((a, b) => a.start - b.start); // 댓글·하트는 기록 목록에서 뺌
+  if (_recMemo) _recMemo.set(cid, out);
+  return out;
 }
 function recsOfType(types, cid) { const t = Array.isArray(types) ? types : [types]; return childRecs(cid).filter((r) => t.includes(r.type)); }
 function lastOf(types, cid) { const l = recsOfType(types, cid); return l[l.length - 1] || null; }
@@ -1375,10 +1398,11 @@ async function dataURLToBlob(u) {
   return new Blob([arr], { type: mime });
 }
 
-async function exportBackup({ withPhotos = true } = {}) {
+/* asBlobs: 사진을 글자(data URL)로 바꾸지 않고 Blob 그대로 돌려줌 → zip 백업에 파일로 넣는다 (사진이 많아도 메모리를 적게 씀) */
+async function exportBackup({ withPhotos = true, asBlobs = false } = {}) {
   const photos = [];
   if (withPhotos) {
-    for (const p of await DB.all('photos')) photos.push({ id: p.id, childId: p.childId, w: p.w, h: p.h, createdAt: p.createdAt, kind: p.kind, mime: p.mime, dur: p.dur, data: await blobToDataURL(p.blob) });
+    for (const p of await DB.all('photos')) { const meta = { id: p.id, childId: p.childId, w: p.w, h: p.h, createdAt: p.createdAt, kind: p.kind, mime: p.mime, dur: p.dur }; photos.push(asBlobs ? { ...meta, blob: p.blob } : { ...meta, data: await blobToDataURL(p.blob) }); }
   }
   const kvOut = { ...D.kv }; delete kvOut.pinHash; delete kvOut.timers;
   delete kvOut.sync; delete kvOut.syncQueue; delete kvOut.syncCursor; delete kvOut.deviceId; delete kvOut.kvStamp;
@@ -1399,7 +1423,8 @@ async function importBackup(obj, mode = 'merge') {
   await mergeList('supplies', obj.supplies, 'supplies');
   for (const p of obj.photos || []) {
     if (mode === 'merge' && (await DB.get('photos', p.id))) continue;
-    await DB.put('photos', { id: p.id, childId: p.childId, w: p.w, h: p.h, createdAt: p.createdAt, blob: await dataURLToBlob(p.data), ...(p.kind === 'audio' ? { kind: 'audio', mime: p.mime, dur: p.dur } : {}) }); stat.photos++;
+    const blob = p.blob || (p.data ? await dataURLToBlob(p.data) : null); if (!blob) continue;
+    await DB.put('photos', { id: p.id, childId: p.childId, w: p.w, h: p.h, createdAt: p.createdAt, blob, ...(p.kind === 'audio' ? { kind: 'audio', mime: p.mime, dur: p.dur } : {}) }); stat.photos++;
   }
   if (obj.kv) {
     for (const k of ['quickTypes', 'statusCards', 'tagPresets', 'devChecks', 'devAns', 'theme', 'notify', 'feedReminderH']) if (obj.kv[k] !== undefined && (mode === 'replace' || D.kv[k] === undefined)) await setKV(k, obj.kv[k]);
@@ -2182,12 +2207,12 @@ const S = {
 const ACT = {};          // 클릭 동작 모음
 const CHANGE = {};       // change 이벤트 동작 모음
 
-function getPath(o, p) { return p.split('.').reduce((a, k) => (a == null ? a : a[k]), o); }
 function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); const t = ks.reduce((a, k) => (a[k] == null ? (a[k] = {}) : a[k]), o); t[last] = v; }
 
 function toast(msg) {
   S.toast = msg; renderToast();
-  clearTimeout(toast._t); toast._t = setTimeout(() => { S.toast = null; renderToast(); }, 2200);
+  // 긴 안내는 끝까지 읽을 수 있게 글자 수만큼 더 오래 보여 준다 (2.2초~6초)
+  clearTimeout(toast._t); toast._t = setTimeout(() => { S.toast = null; renderToast(); }, Math.min(6000, Math.max(2200, String(msg).length * 85)));
 }
 function renderToast() {
   let el = $('#toast');
@@ -2409,9 +2434,8 @@ function predictCard(child, now, sleepingSince) {
   const rows = [];
   if (f) rows.push(`<button type="button" class="pred-row" data-act="newRec" data-a="${f.last.type}"><i class="dot" style="--tone:${tone('formula')}"></i><span class="grow"><b>다음 수유</b> <span class="num">${fmtHM(f.at)}</span>쯤<br><span class="small muted">${f.source === 'child' ? `평균 ${fmtDur(f.interval)}마다` : `${ageShort(child.birth, now)} 보통 ${fmtDur(f.interval)}마다`}</span></span>${f.overdue ? pill('간격 지남', 'warn') : pill(f.at - now < 0 ? '지금쯤' : `${fmtDur(f.at - now)} 뒤`)}</button>`);
   if (p && !p.sleeping) {
-    const range = '';
     const sub = p.kind === 'night' ? (p.bedAt ? '평소 잠드는 시각' : '밤잠 준비할 시간') : `깬 지 ${fmtDur(p.awake) || '0분'}`;
-    rows.push(`<button type="button" class="pred-row" data-act="newRec" data-a="sleep"><i class="dot" style="--tone:${tone('sleep')}"></i><span class="grow"><b>${p.kind === 'night' ? '밤잠' : '다음 낮잠'}</b> <span class="num">${fmtHM(p.at)}</span>쯤${range}<br><span class="small muted">${sub}</span></span>${p.overdue && p.kind === 'nap' ? pill('늦었어요', 'warn') : p.from <= now && p.kind === 'nap' ? pill('재울 시간', 'ok') : pill(p.at > now ? `${fmtDur(p.at - now)} 뒤` : '지금쯤')}</button>`);
+    rows.push(`<button type="button" class="pred-row" data-act="newRec" data-a="sleep"><i class="dot" style="--tone:${tone('sleep')}"></i><span class="grow"><b>${p.kind === 'night' ? '밤잠' : '다음 낮잠'}</b> <span class="num">${fmtHM(p.at)}</span>쯤<br><span class="small muted">${sub}</span></span>${p.overdue && p.kind === 'nap' ? pill('늦었어요', 'warn') : p.from <= now && p.kind === 'nap' ? pill('재울 시간', 'ok') : pill(p.at > now ? `${fmtDur(p.at - now)} 뒤` : '지금쯤')}</button>`);
   }
   if (!rows.length) return '';
   return `<div class="card pred-card" style="margin-top:12px"><div class="spread"><b>다음 예상</b><button type="button" class="q-btn" data-act="push" data-a="predictInfo" aria-label="계산 방법">?</button></div>${rows.join('')}</div>`;
@@ -2475,12 +2499,6 @@ async function startTimer(type) {
   if (type === 'breast') { t.side = 'L'; t.segs = [{ side: 'L', from: now, to: null }]; }
   await setKV('timers', [...list, t]); S.editor = null; render(); try { navigator.vibrate && navigator.vibrate(25); } catch (e) { /* 무시 */ } toast(`${TYPES[type].name} 타이머 시작`);
 }
-ACT.timerSwitch = async (el) => {
-  const list = timers(); const t = list.find((x) => x.id === el.dataset.a); if (!t) return;
-  const now = Date.now(); const cur = t.segs[t.segs.length - 1]; if (cur && !cur.to) cur.to = now;
-  t.side = t.side === 'L' ? 'R' : 'L'; t.segs.push({ side: t.side, from: now, to: null });
-  await setKV('timers', list); render();
-};
 ACT.timerCancel = async (el) => {
   if (S.confirm !== 'timer:' + el.dataset.a) { S.confirm = 'timer:' + el.dataset.a; render(); setTimeout(() => { if (S.confirm === 'timer:' + el.dataset.a) { S.confirm = null; render(); } }, 3000); return; }
   S.confirm = null; await setKV('timers', timers().filter((x) => x.id !== el.dataset.a)); render();
@@ -2536,10 +2554,19 @@ function openEditor(rec, existing = true) {
   S.editor = { draft: JSON.parse(JSON.stringify(rec)), isNew: !existing, confirmDel: false, newPhotos: [], newTag: '' };
   if (!S.editor.draft.data) S.editor.draft.data = {};
   if (!S.editor.draft.data.tags) S.editor.draft.data.tags = [];
+  S.editor.orig = JSON.stringify(S.editor.draft); // 바뀐 게 있는지 비교할 처음 상태
   render();
 }
 ACT.newRec = (el) => { S.recPick = false; openEditor(newDraft(el.dataset.a), false); };
 ACT.editRec = (el) => { const r = D.records.find((x) => x.id === el.dataset.a); if (r) openEditor(r, true); };
+/* 고친 내용이 있는데 바깥(어두운 부분)을 누르거나 뒤로 버튼을 누르면 바로 닫지 않고 한 번 더 확인 (실수로 날리지 않게).
+   위쪽 ✕ 버튼은 사용자가 닫으려고 누른 것이라 바로 닫는다 */
+function editorDirty() { const E = S.editor; if (!E) return false; if (E.newPhotos?.length || E.newAudios?.length) return true; return E.orig != null && JSON.stringify(E.draft) !== E.orig; }
+ACT.closeEditorSoft = () => {
+  const E = S.editor; if (!E) return;
+  if (editorDirty() && !E.confirmClose) { E.confirmClose = true; toast('입력한 내용이 있어요. 저장하지 않고 닫으려면 한 번 더 누르세요'); clearTimeout(E.closeT); E.closeT = setTimeout(() => { if (S.editor === E) E.confirmClose = false; }, 4000); return; }
+  return ACT.closeEditor();
+};
 ACT.closeEditor = async () => {
   if (S.rec) { S.rec.cancel = true; try { S.rec.mr.stop(); } catch (e) { /* 무시 */ } }
   if (S.editor?.newPhotos?.length) for (const id of S.editor.newPhotos) await removePhoto(id);
@@ -2626,7 +2653,7 @@ function viewEditor() {
 
   if (!E.isNew) b += field('가족 이야기', `<div class="card flat stack" style="gap:8px">${reactionBar(r, true)}${commentList(r)}</div>`);
   if (!E.isNew) b += btn(E.confirmDel ? '한 번 더 누르면 삭제돼요' : '기록 삭제', 'edDelete', { cls: 'danger block' });
-  return `<div class="scrim" data-act="closeEditor"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(t.name)} 기록" style="--tone:${tone(r.type)}">
+  return `<div class="scrim" data-act="closeEditorSoft"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(t.name)} 기록" style="--tone:${tone(r.type)}">
     <div class="sheet-head"><button type="button" data-act="closeEditor" aria-label="닫기">${ICONS.close}</button><h2>${esc(t.name)}</h2><span class="sheet-head-pad" aria-hidden="true"></span></div>
     <div class="sheet-body">${b}</div>
     <div class="sheet-foot">${btn(E.riskOk && E.riskOk === riskSig(r) ? '주의 확인했어요, 저장' : '저장', 'edSave', { cls: 'primary block', attrs: `style="background:${tone(r.type)};color:#fff"` })}</div></div>`;
@@ -2746,12 +2773,6 @@ ACT.edTime = (el) => {
   render();
 };
 ACT.edDur = (el) => { const r = S.editor.draft; const m = +el.dataset.a; r.end = m ? r.start + m * MIN : null; render(); };
-ACT.edBreast = (el) => { const r = S.editor.draft; const k = el.dataset.a; r.data[k] = Math.max(0, (r.data[k] || 0) + +el.dataset.b); render(); };
-ACT.edAmt = (el) => {
-  const r = S.editor.draft; const t = TYPES[r.type]; const step = r.type === 'med' ? ((r.unit || 'mL') === 'mL' ? 0.5 : 1) : (t.amount?.step || 10);
-  r.value = Math.max(0, round1((+r.value || 0) + +el.dataset.a * step)); render();
-};
-ACT.edTemp = (el) => { const r = S.editor.draft; r.value = round1(clamp((+r.value || 36.5) + +el.dataset.a, 33, 43)); render(); };
 ACT.edSet = (el) => { const r = S.editor.draft; const k = el.dataset.a; const v = el.dataset.b; r[k] = k === 'value' ? +v : v; render(); };
 ACT.edMedCat = (el) => {
   const r = S.editor.draft; const c = el.dataset.a; if (r.data.category === c) return;
@@ -2826,10 +2847,10 @@ ACT.edSave = async () => {
     delete r.data.prefillFrom;
   }
   if (r.type === 'vaccine' && !r.data.key) { const v = VACCINES[0]; r.data.key = v.key; r.data.name = v.name; r.data.dose = v.dose; }
+  if (S.rec) { toast('녹음을 먼저 멈춰 주세요'); return; }
   // 빠진 사진은 저장 시 정리
   if (!E.isNew) { const before = D.records.find((x) => x.id === r.id)?.photoIds || []; for (const id of before) if (!r.photoIds.includes(id)) await removePhoto(id); }
   for (const id of E.newPhotos) if (!r.photoIds.includes(id)) await removePhoto(id);
-  if (S.rec) { toast('녹음을 먼저 멈춰 주세요'); return; }
   const audioNow = r.data.audioIds || [];
   if (!E.isNew) { const before = D.records.find((x) => x.id === r.id)?.data?.audioIds || []; for (const id of before) if (!audioNow.includes(id)) await removePhoto(id); }
   for (const id of E.newAudios || []) if (!audioNow.includes(id)) await removePhoto(id);
@@ -3172,15 +3193,22 @@ function scheduleView(child, kind) {
 ACT.schedBulk = async (el) => {
   const kind = el.dataset.a; if (S.confirm !== 'bulk:' + kind) { S.confirm = 'bulk:' + kind; render(); return; }
   S.confirm = null; const child = activeChild();
-  const list = scheduleItems(child, kind).filter((x) => x.status === 'overdue');
-  for (const x of list) {
-    const start = Math.min(x.toTs - DAY, offsetFrom(x.fromTs, { d: 3 })) + 10 * HOUR - (new Date(x.fromTs).getHours() * HOUR);
-    const base = { id: uid(), childId: child.id, start, end: null, value: null, unit: null, memo: '앱 사용 전 접종·검진 (날짜는 권장 시기로 표시)', photoIds: [] };
-    if (kind === 'vaccine') await saveRecord({ ...base, type: 'vaccine', data: { key: x.key, name: x.name, dose: x.dose, place: '', tags: [], bulk: true } });
-    else await saveRecord({ ...base, type: 'hospital', data: { visit: '검진', checkupKey: x.key, tags: [], bulk: true } });
+  // 다음 차수(예: 일본뇌염 2차 = 1차 1주 뒤)는 앞 차수 날짜를 기준으로 시기가 다시 계산된다.
+  // 앞 차수를 '권장 시기'로 채우면 다음 차수도 이미 지난 일정이 되므로, 지난 일정이 더 없을 때까지 함께 채운다
+  const list = []; const doneKeys = new Set();
+  for (let round = 0; round < 10; round++) {
+    const next = scheduleItems(child, kind).filter((x) => x.status === 'overdue' && !doneKeys.has(x.key));
+    if (!next.length) break;
+    for (const x of next) { await bulkDone(child, kind, x); doneKeys.add(x.key); list.push(x); }
   }
   render(); toast(`${list.length}개를 완료로 표시했어요. 정확한 날짜는 항목을 눌러 고칠 수 있어요`);
 };
+async function bulkDone(child, kind, x) {
+  const start = Math.min(x.toTs - DAY, offsetFrom(x.fromTs, { d: 3 })) + 10 * HOUR - (new Date(x.fromTs).getHours() * HOUR);
+  const base = { id: uid(), childId: child.id, start, end: null, value: null, unit: null, memo: '앱 사용 전 접종·검진 (날짜는 권장 시기로 표시)', photoIds: [] };
+  if (kind === 'vaccine') await saveRecord({ ...base, type: 'vaccine', data: { key: x.key, name: x.name, dose: x.dose, place: '', tags: [], bulk: true } });
+  else await saveRecord({ ...base, type: 'hospital', data: { visit: '검진', checkupKey: x.key, tags: [], bulk: true } });
+}
 ACT.schedAll = () => { S.growth.showAll = true; render(); };
 ACT.schedTap = (el) => {
   const kind = el.dataset.a, key = el.dataset.b; const child = activeChild();
@@ -3331,7 +3359,8 @@ ACT.childDelete = async (el) => {
 function pageStats(child) {
   const n = S.stats.range; const end = dayStart(Date.now()); const from = addDays(end, -(n - 1));
   const days = dailyStats(child.id, from, n); const lab = (d) => (n <= 7 ? `${new Date(d.date).getDate()}(${WD[new Date(d.date).getDay()]})` : `${new Date(d.date).getDate()}`);
-  const avg = (k) => { const v = days.map((d) => d[k]); const nz = v.filter((x) => x > 0); return nz.length ? nz.reduce((a, b) => a + b, 0) / nz.length : 0; };
+  // 하루 평균: 기록이 있는 날 기준, 아직 끝나지 않은 오늘은 빼고 (오늘만 있으면 오늘로)
+  const full = days.filter((d) => d.date < end); const avg = (k) => { const v = (full.some((d) => d[k] > 0) ? full : days).map((d) => d[k]); const nz = v.filter((x) => x > 0); return nz.length ? nz.reduce((a, b) => a + b, 0) / nz.length : 0; };
   const card = (title, sub, chart) => `<div class="card"><div class="spread"><h3>${title}</h3><span class="small muted">${sub}</span></div>${chart}</div>`;
   let h = pageHead('통계') + `<div class="stack">${seg([[7, '7일'], [14, '14일'], [30, '30일']], n, 'statRange')}`;
   h += card('분유·유축 수유량', `하루 평균 ${fmtNum(avg('feedMl'), 0)}ml`, barChart(days.map((d) => ({ label: lab(d), value: d.feedMl })), { color: 'var(--c-formula)' }));
@@ -3612,7 +3641,7 @@ function pageNotify() {
     <div class="card"><div class="spread"><span><b>해열제 알림</b><br><span class="small muted">다음 해열제를 먹일 수 있는 시각, 먹인 지 1시간 뒤 체온 다시 재기</span></span>${btn(n.med ? '켜짐' : '꺼짐', 'nToggle', { a: 'med', cls: n.med ? 'sm primary' : 'sm' })}</div></div>
     <div class="card stack"><div class="spread"><span><b>추억 영상 알림</b><br><span class="small muted">100일·돌 같은 기념일, 매달 생일, 1년·한 달 전 이맘때 사진을 음악과 함께 영상으로 보내 드려요</span></span>${btn(memSettings().on ? '켜짐' : '꺼짐', 'nMemory', { cls: memSettings().on ? 'sm primary' : 'sm' })}</div>
       ${memSettings().on ? `<div class="chips">${[[9, '오전 9시'], [12, '낮 12시'], [20, '저녁 8시'], [21, '밤 9시']].map(([h, l]) => chip(l, memSettings().hour === h, 'nMemHour', h)).join('')}</div>` : ''}</div>
-    ${NATIVE ? '<p class="small muted">알림은 미리 예약돼서 앱을 꺼 두어도 정한 시각에 울려요. 휴대폰 설정에서 육아모아 알림이 켜져 있어야 해요.</p>' : `<p class="small muted">알림은 앱이 열려 있거나 최근에 사용한 상태에서 울려요. 휴대폰이 앱을 완전히 종료하면 늦거나 오지 않을 수 있어요(서버 푸시는 가족 공유와 함께 다음 단계에서 추가 예정).</p>`}
+    ${NATIVE ? '<p class="small muted">알림은 미리 예약돼서 앱을 꺼 두어도 정한 시각에 울려요. 휴대폰 설정에서 육아모아 알림이 켜져 있어야 해요.</p>' : `<p class="small muted">알림은 앱이 열려 있거나 최근에 사용한 상태에서 울려요. 휴대폰이 앱을 완전히 종료하면 늦거나 오지 않을 수 있어요. 앱(안드로이드)으로 설치하면 앱을 꺼 두어도 울려요.</p>`}
     ${btn('알림 시험해 보기', 'nTest', { cls: 'block' })}</div>`;
 }
 ACT.nToggle = async (el) => {
@@ -3720,32 +3749,66 @@ function pageBackup() {
       <textarea id="bk-out" class="input" readonly hidden rows="4"></textarea></div>
     <div class="card stack"><h3>가져오기</h3>
       ${seg([['merge', '합치기 (기기 맞추기)'], ['replace', '모두 바꾸기']], m, 'bkMode')}
-      <p class="small muted" style="margin:0">${m === 'merge' ? '두 기기의 기록을 합쳐요. 같은 기록은 더 최근에 고친 쪽을 남겨요.' : '이 기기의 기록을 모두 지우고 백업 내용으로 바꿔요.'}</p>
-      <label class="btn block" for="bk-file" style="text-align:center">백업 파일 고르기</label><input type="file" id="bk-file" accept=".json,application/json" hidden data-change="bkImportFile">
+      <p class="small muted" style="margin:0">${m === 'merge' ? '두 기기의 기록을 합쳐요. 같은 기록은 더 최근에 고친 쪽을 남겨요. 이 기기 기록은 지워지지 않아요.' : '이 기기의 기록을 모두 지우고 백업 내용으로 바꿔요. 되돌릴 수 없어요.'}</p>
+      ${m === 'replace' ? chip(S.form.replaceOk ? '✓ 이 기기 기록을 지우고 바꿀게요' : '이 기기 기록을 지우고 바꿀게요', !!S.form.replaceOk, 'bkReplaceOk', '', '', 'var(--danger)') : ''}
+      <label class="btn block${m === 'replace' && !S.form.replaceOk ? ' disabled' : ''}" for="bk-file" style="text-align:center"${m === 'replace' && !S.form.replaceOk ? ' aria-disabled="true"' : ''}>백업 파일 고르기 (.zip 또는 .json)</label><input type="file" id="bk-file" accept=".zip,.json,application/zip,application/json" hidden data-change="bkImportFile"${m === 'replace' && !S.form.replaceOk ? ' disabled' : ''}>
       <textarea id="bk-in" class="input" rows="3" placeholder="또는 복사한 백업 글을 여기에 붙여 넣기" data-bind="form.importText">${esc(S.form.importText || '')}</textarea>
       ${btn('붙여 넣은 글 가져오기', 'bkImportText', { cls: 'block' })}</div>
-    <div class="card small"><b>엄마·아빠 휴대폰 기록 맞추기</b><ol style="margin:6px 0 0;padding-left:18px"><li>엄마 폰: 백업 파일 저장 → 카카오톡 등으로 아빠에게 보내기</li><li>아빠 폰: 가져오기 → 합치기 → 파일 고르기</li><li>반대 방향도 한 번 하면 두 폰의 기록이 같아져요</li></ol><p class="muted" style="margin:6px 0 0">실시간 자동 공유는 클라우드 저장을 붙이는 다음 단계에서 지원할 예정이에요.</p></div></div>`;
+    <div class="card small"><b>엄마·아빠 휴대폰 기록 맞추기</b><ol style="margin:6px 0 0;padding-left:18px"><li>엄마 폰: 백업 파일 저장 → 카카오톡 등으로 아빠에게 보내기</li><li>아빠 폰: 가져오기 → 합치기 → 파일 고르기</li><li>반대 방향도 한 번 하면 두 폰의 기록이 같아져요</li></ol><p class="muted" style="margin:6px 0 0">매번 맞추지 않고 실시간으로 함께 쓰려면 더보기 → <b>가족 공유</b>를 켜세요.</p></div></div>`;
 }
 ACT.bkMode = (el) => { S.form.importMode = el.dataset.a; render(); };
+/* 백업 파일: 사진이 있으면 zip(백업 내용 backup.json + 사진 파일들), 없으면 json 하나.
+   예전처럼 사진을 글자로 바꿔 json 하나에 넣으면 사진이 많을 때 휴대폰 메모리가 모자라 실패할 수 있어서 바꿈 */
+const BK_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'audio/ogg': 'ogg' };
+async function buildBackupFile() {
+  const data = await exportBackup({ withPhotos: true, asBlobs: true }); const ymd = fmtYMD(Date.now()).replace(/-/g, '');
+  if (!data.photos.length) return { name: `yuamoa-backup-${ymd}.json`, blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), photos: 0 };
+  const files = [];
+  data.photos = data.photos.map((p) => { const ext = BK_EXT[(p.blob?.type || p.mime || 'image/jpeg').split(';')[0]] || 'bin'; const file = `photos/${p.id}.${ext}`; files.push({ name: file, blob: p.blob }); const { blob, ...meta } = p; return { ...meta, file }; });
+  files.unshift({ name: 'backup.json', blob: new Blob([JSON.stringify(data)], { type: 'application/json' }) });
+  return { name: `yuamoa-backup-${ymd}.zip`, blob: await makeZip(files), photos: files.length - 1 };
+}
 ACT.bkFile = async () => {
-  const data = await exportBackup({ withPhotos: true }); const json = JSON.stringify(data);
-  const name = `yuamoa-backup-${fmtYMD(Date.now()).replace(/-/g, '')}.json`;
-  const res = await saveFiles([{ name, blob: new Blob([json], { type: 'application/json' }) }], 'backup.zip', { shareTitle: '육아모아 백업' });
-  if (res === 'shared') toast('백업 파일을 보냈어요');
-  else if (res === 'saved') toast('백업 파일을 저장했어요');
-  else if (res === 'downloaded') toast('백업 파일을 저장했어요. 저장이 안 됐다면 "글로 복사"를 쓰세요');
+  toast('백업 파일을 만드는 중이에요…');
+  const f = await buildBackupFile();
+  const res = await saveFiles([{ name: f.name, blob: f.blob }], f.name, { shareTitle: '육아모아 백업' });
+  const what = f.photos ? `백업 파일(사진 ${f.photos}개 포함)` : '백업 파일';
+  if (res === 'shared') toast(`${what}을 보냈어요. 카톡 나에게 보내기나 드라이브에 꼭 보관해 두세요`);
+  else if (res === 'saved') toast(`${what}을 저장했어요`);
+  else if (res === 'downloaded') toast(`${what}을 저장했어요. 저장이 안 됐다면 "글로 복사"를 쓰세요`);
   else if (res === 'failed') toast('파일 저장이 막혀 있어요. "글로 복사"를 이용하세요');
 };
 ACT.bkCopy = async () => { const data = await exportBackup({ withPhotos: false }); await copyText(JSON.stringify(data), '#bk-out'); };
-async function doImport(text) {
+async function doImport(obj) {
+  if ((S.form.importMode || 'merge') === 'replace' && !S.form.replaceOk) { toast('"이 기기 기록을 지우고 바꿀게요"를 먼저 눌러 주세요'); return; }
   try {
-    const obj = JSON.parse(text); const st = await importBackup(obj, S.form.importMode || 'merge');
-    S.form.importText = ''; S.stack = []; S.tab = 'home'; render();
+    const st = await importBackup(obj, S.form.importMode || 'merge');
+    S.form.importText = ''; S.form.replaceOk = false; S.stack = []; S.tab = 'home'; render();
     toast(`가져왔어요: 아이 ${st.children}명, 기록 ${st.records}개, 사진 ${st.photos}장`);
-  } catch (e) { toast(e.message?.includes('육아모아') ? e.message : '백업 내용을 읽지 못했어요. 파일을 다시 확인해 주세요'); }
+  } catch (e) { console.warn(e); toast(e.message?.includes('육아모아') ? e.message : friendlyError(e, '백업 내용을 읽지 못했어요. 파일을 다시 확인해 주세요')); }
 }
-CHANGE.bkImportFile = async (el) => { const f = el.files?.[0]; if (!f) return; await doImport(await f.text()); };
-ACT.bkImportText = async () => { if (!(S.form.importText || '').trim()) { toast('백업 글을 붙여 넣어 주세요'); return; } await doImport(S.form.importText); };
+/* 백업 파일 읽기: zip(사진 포함) 또는 json */
+async function readBackupFile(f) {
+  const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+  if (head[0] === 0x50 && head[1] === 0x4b) { // 'PK' = zip
+    const z = await readZip(f); const j = z.get('backup.json'); if (!j) throw new Error('육아모아 백업 파일이 아니에요.');
+    const obj = JSON.parse(await j.text());
+    obj.photos = (obj.photos || []).map((p) => (p.file && z.get(p.file) ? { ...p, blob: z.get(p.file).slice(0, z.get(p.file).size, p.mime || (p.kind === 'audio' ? 'audio/mp4' : 'image/jpeg')) } : p));
+    return obj;
+  }
+  return JSON.parse(await f.text());
+}
+CHANGE.bkImportFile = async (el) => {
+  const f = el.files?.[0]; el.value = ''; if (!f) return; // 같은 파일을 다시 골라도 동작하게 비움
+  let obj; try { obj = await readBackupFile(f); } catch (e) { toast(e.message?.includes('육아모아') || e.message?.includes('zip') ? e.message : '백업 파일을 읽지 못했어요. 육아모아에서 만든 파일인지 확인해 주세요'); return; }
+  await doImport(obj);
+};
+ACT.bkImportText = async () => {
+  const t = (S.form.importText || '').trim(); if (!t) { toast('백업 글을 붙여 넣어 주세요'); return; }
+  let obj; try { obj = JSON.parse(t); } catch (e) { toast('붙여 넣은 글을 읽지 못했어요. "글로 복사"한 내용 전체를 붙여 넣어 주세요'); return; }
+  await doImport(obj);
+};
+ACT.bkReplaceOk = () => { S.form.replaceOk = !S.form.replaceOk; render(); };
 
 /* --- 앱 잠금 --- */
 function pageLock() {
@@ -3817,13 +3880,13 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.20.1';
+const APP_VERSION = '1.21.0';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
   children: () => pageChildren(), childEdit: (c, a) => pageChildEdit(a), stats: (c) => pageStats(c), album: (c) => pageAlbum(c), diary: (c) => pageDiary(c),
   supplies: (c) => pageSupplies(c), supplyEdit: (c, a) => pageSupplyEdit(a), quickEdit: () => pageQuickEdit(), statusEdit: (c) => pageStatusEdit(c), notify: () => pageNotify(), backup: () => pageBackup(),
-  lock: () => pageLock(), theme: () => pageTheme(), about: () => pageAbout(), medCalc: (c) => pageMedCalc(c), feverGuide: (c) => pageFeverGuide(c), nearby: () => pageNearby(),
+  lock: () => pageLock(), theme: () => pageTheme(), about: () => pageAbout(), medCalc: (c) => pageMedCalc(c), feverGuide: (c) => pageFeverGuide(c),
   report: (c) => pageReport(c), episodes: (c) => pageEpisodes(c), episode: (c, a) => pageEpisode(c, a), family: () => pageFamily(),
   predictInfo: (c) => pagePredictInfo(c), milk: (c) => pageMilk(c),
   calendar: (c) => pageCalendar(c), sticker: (c) => pageSticker(c), book: (c) => pageBook(c), feedback: () => pageFeedback(),
@@ -3863,6 +3926,10 @@ function viewNav() {
 }
 
 function render() {
+  _recMemo = new Map();
+  try { renderNow(); } finally { _recMemo = null; }
+}
+function renderNow() {
   const app = $('#app');
   const pageScroll = $('.page')?.scrollTop, sheetScroll = $('.sheet-body')?.scrollTop;
   if (S.memRun && !S.memShow) memStop(); // 추억 영상을 닫으면 재생·녹화 멈춤
@@ -3919,7 +3986,7 @@ document.addEventListener('click', async (ev) => {
   if (holdFired && el.closest('[data-hold]')) { holdFired = false; ev.preventDefault(); return; }
   const fn = ACT[el.dataset.act]; if (!fn) return;
   ev.preventDefault();
-  try { await fn(el, ev); } catch (e) { console.error(e); toast('문제가 생겼어요: ' + (e.message || e)); }
+  try { await fn(el, ev); } catch (e) { console.error(e); toast(friendlyError(e, '처리하지 못했어요. 다시 해 주세요')); }
 });
 document.addEventListener('input', (ev) => {
   const el = ev.target; const path = el.dataset?.bind; if (!path) return;
@@ -3930,7 +3997,7 @@ document.addEventListener('input', (ev) => {
 });
 document.addEventListener('change', async (ev) => {
   const el = ev.target;
-  if (el.dataset?.change && CHANGE[el.dataset.change]) { try { await CHANGE[el.dataset.change](el, ev); } catch (e) { console.error(e); toast('문제가 생겼어요'); } return; }
+  if (el.dataset?.change && CHANGE[el.dataset.change]) { try { await CHANGE[el.dataset.change](el, ev); } catch (e) { console.error(e); toast(friendlyError(e, '처리하지 못했어요. 다시 해 주세요')); } return; }
   if (el.dataset?.bind && (el.dataset.rerender || el.dataset.kind === 'time')) {
     if (el.dataset.kind === 'time' && S.editor) { const r = S.editor.draft; if (el.id === 'ed-start' && r.end && r.end < r.start) r.end = null; }
     render();
@@ -3938,7 +4005,7 @@ document.addEventListener('change', async (ev) => {
 });
 /* 열린 창·화면 하나 닫기 (Esc 키, 안드로이드 뒤로 버튼). 닫은 게 있으면 true */
 function closeTop() {
-  if (S.memShow) ACT.memClose(); else if (S.memPrompt) ACT.memLater(); else if (S.viewer) { S.viewer = null; render(); } else if (S.slotPick != null) ACT.slotClose(); else if (S.recPick) ACT.recClose(); else if (S.editor) ACT.closeEditor(); else if (S.stack.length) popPage();
+  if (S.memShow) ACT.memClose(); else if (S.memPrompt) ACT.memLater(); else if (S.viewer) { S.viewer = null; render(); } else if (S.slotPick != null) ACT.slotClose(); else if (S.recPick) ACT.recClose(); else if (S.editor) ACT.closeEditorSoft(); else if (S.stack.length) popPage();
   else return false;
   return true;
 }
@@ -4112,7 +4179,7 @@ const Sync = {
       }
       this.lastSync = Date.now(); this.setStatus('ok');
     } catch (e) {
-      console.warn('공유 보내기 실패', e); this.setStatus('error', e.message); this.schedule(15000);
+      console.warn('공유 보내기 실패', e); this.setStatus('error', friendlyError(e, '가족에게 보내지 못했어요. 잠시 뒤 자동으로 다시 보내요')); this.schedule(15000);
     } finally { this.flushing = false; }
     if (this.pending()) this.schedule(300);
   },
@@ -4158,9 +4225,9 @@ const Sync = {
     this.stopListen(); this.adapter = this.provider(cfg); this.setStatus('connecting');
     try {
       await this.adapter.init(cfg);
-      this.unsub = this.adapter.subscribe(cfg.familyId, D.kv.syncCursor || 0, (docs, cur) => this.onRemote(docs, cur), (e) => { console.warn(e); this.setStatus('error', e.message || '연결이 끊겼어요'); });
+      this.unsub = this.adapter.subscribe(cfg.familyId, D.kv.syncCursor || 0, (docs, cur) => this.onRemote(docs, cur), (e) => { console.warn(e); this.setStatus('error', friendlyError(e, '연결이 끊겼어요. 잠시 뒤 다시 연결해요')); });
       this.setStatus('ok'); this.schedule(100);
-    } catch (e) { console.warn(e); this.adapter = null; this.setStatus('error', e.message); setTimeout(() => syncOn() && !this.adapter && this.start(), 30000); }
+    } catch (e) { console.warn(e); this.adapter = null; this.setStatus('error', friendlyError(e, '가족 공유에 연결하지 못했어요. 30초 뒤 다시 시도해요')); setTimeout(() => syncOn() && !this.adapter && this.start(), 30000); }
   },
   stopListen() { try { this.unsub && this.unsub(); } catch (e) { /* 무시 */ } this.unsub = null; },
   /* 가족 만들기/참여: cfg = { provider, firebase?, server?, deviceName } */
@@ -4244,7 +4311,7 @@ async function famConnect(code) {
   if (code !== undefined && normCode(code).length !== 12) { toast('가족 코드 12자리를 입력해 주세요'); return; }
   f.busy = code !== undefined ? 'join' : 'create'; render();
   try { await Sync.connect(cfg, code); S.form.fam = null; render(); toast(code !== undefined ? '가족 공유에 참여했어요' : '가족 공간을 만들었어요. 코드를 가족에게 보내 주세요'); }
-  catch (e) { console.warn(e); f.busy = false; render(); toast(e.message || '연결하지 못했어요'); }
+  catch (e) { console.warn(e); f.busy = false; render(); toast(friendlyError(e, '연결하지 못했어요. 설정과 인터넷 연결을 확인해 주세요')); }
 }
 ACT.famName = (el) => { S.form.fam.name = el.dataset.a; render(); };
 ACT.famProvider = (el) => { S.form.fam.provider = el.dataset.a; render(); };
@@ -4252,7 +4319,7 @@ ACT.famCreate = () => famConnect();
 ACT.famJoin = () => famConnect(S.form.fam.code || '');
 ACT.famCopy = () => copyText(fmtCode(D.kv.sync.familyId), '#fam-code-out');
 ACT.famRename = async (el) => { await setKV('sync', { ...D.kv.sync, deviceName: el.dataset.a }); render(); };
-ACT.famSyncNow = async () => { if (!Sync.adapter) await Sync.start(); else { await Sync.queueAll(); await Sync.flush(); ServerAdapter.poke && ServerAdapter.poke(); } render(); toast('동기화했어요'); };
+ACT.famSyncNow = async () => { if (!Sync.adapter) await Sync.start(); else { await Sync.queueAll(); await Sync.flush(); ServerAdapter.poke && ServerAdapter.poke(); } render(); toast(Sync.status === 'error' ? `동기화하지 못했어요: ${Sync.error}` : Sync.status === 'offline' ? '오프라인이에요. 연결되면 자동으로 보내요' : '동기화했어요'); };
 ACT.famOff = async () => { if (S.confirm !== 'famoff') { S.confirm = 'famoff'; render(); return; } S.confirm = null; await Sync.disconnect(); render(); toast('이 기기에서 가족 공유를 껐어요'); };
 
 window.addEventListener('online', () => { if (syncOn()) { if (!Sync.adapter) Sync.start(); else Sync.flush(); } });
@@ -4734,18 +4801,19 @@ async function makeZip(files) {
   const enc = new TextEncoder(); const parts = []; const central = []; let offset = 0;
   const d = new Date(); const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1); const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
   for (const f of files) {
-    const name = enc.encode(f.name); const data = new Uint8Array(await f.blob.arrayBuffer()); const crc = crc32(data);
+    // CRC 계산에만 잠깐 읽고, zip에는 원래 Blob을 그대로 넣는다(사진이 많아도 메모리를 두 배로 쓰지 않게)
+    const name = enc.encode(f.name); const size = f.blob.size; const crc = crc32(new Uint8Array(await f.blob.arrayBuffer()));
     const lh = new DataView(new ArrayBuffer(30));
     lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
-    lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+    lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
     lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
-    parts.push(lh.buffer, name, data);
+    parts.push(lh.buffer, name, f.blob);
     const ch = new DataView(new ArrayBuffer(46));
     ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
-    ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+    ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true); ch.setUint32(20, size, true); ch.setUint32(24, size, true);
     ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
     central.push(ch.buffer, name);
-    offset += 30 + name.length + data.length;
+    offset += 30 + name.length + size;
   }
   const cSize = central.reduce((a, b) => a + b.byteLength, 0);
   const end = new DataView(new ArrayBuffer(22));
@@ -4753,6 +4821,27 @@ async function makeZip(files) {
   return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
 }
 
+/* zip 읽기: 이름 → Blob(파일 안에서 잘라낸 조각이라 통째로 메모리에 올리지 않음).
+   육아모아가 만든 압축 없는 zip과, 일반 압축(deflate) zip(브라우저가 지원할 때)을 읽는다 */
+async function readZip(blob) {
+  const tailLen = Math.min(blob.size, 65557); const tail = new DataView(await blob.slice(blob.size - tailLen).arrayBuffer());
+  let eocd = -1; for (let i = tailLen - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('zip 파일이 아니에요');
+  const count = tail.getUint16(eocd + 10, true), cdSize = tail.getUint32(eocd + 12, true), cdOff = tail.getUint32(eocd + 16, true);
+  const cd = new DataView(await blob.slice(cdOff, cdOff + cdSize).arrayBuffer()); const dec = new TextDecoder();
+  const out = new Map(); let p = 0;
+  for (let k = 0; k < count && p + 46 <= cd.byteLength; k++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) break;
+    const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true), nlen = cd.getUint16(p + 28, true), xlen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true), loc = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nlen)); p += 46 + nlen + xlen + clen;
+    const lh = new DataView(await blob.slice(loc, loc + 30).arrayBuffer());
+    const start = loc + 30 + lh.getUint16(26, true) + lh.getUint16(28, true); let part = blob.slice(start, start + csize);
+    if (method === 8) { if (typeof DecompressionStream === 'undefined') throw new Error('이 휴대폰에서는 압축된 zip을 열 수 없어요'); part = await new Response(part.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob(); }
+    else if (method !== 0) continue;
+    out.set(name, part);
+  }
+  return out;
+}
 function anchorDownload(blob, name) {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
@@ -5210,7 +5299,7 @@ ACT.drugSearch = async () => {
     const dupBy = {}; for (const d of (Array.isArray(dup) ? dup : [])) (dupBy[d.ITEM_SEQ] = dupBy[d.ITEM_SEQ] || []).push(d);
     D2.list = (Array.isArray(easy) ? easy : []).map((x) => { const ds = dupBy[x.itemSeq] || []; const ings = drugIngredients(x, ...ds); return { ...x, dup: ds[0] || null, ings, cat: drugCategory(ings, ds[0] || {}) }; });
     D2.status = 'ok';
-  } catch (e) { D2.status = 'error'; D2.err = e.message || '찾지 못했어요'; }
+  } catch (e) { D2.status = 'error'; D2.err = friendlyError(e, '찾지 못했어요. 잠시 뒤 다시 해 주세요'); }
   render();
 };
 ACT.drugOpen = async (el) => {
@@ -5242,10 +5331,11 @@ async function careFetch(route, params = {}) {
   try {
     const r = await fetch(`${CARE_API}/${route}${qs ? '?' + qs : ''}`, { signal: ctl.signal });
     const text = await r.text();
+    if (r.status >= 500 && !text.trim().startsWith('<')) throw new Error('서버에 연결하지 못했어요. 잠시 뒤 다시 해 주세요');
     if (text.trim().startsWith('{')) { const j = JSON.parse(text); if (j.error) throw new Error(j.error); return j; }
     const doc = new DOMParser().parseFromString(text, 'text/xml');
     const code = doc.querySelector('resultCode')?.textContent;
-    if (code && code !== '00') throw new Error(doc.querySelector('resultMsg')?.textContent || '공공데이터 오류');
+    if (code && code !== '00') { const er = new Error(doc.querySelector('resultMsg')?.textContent || '공공데이터 오류'); er.code = code; if (code === '22') er.message = 'LIMITED_NUMBER_OF_SERVICE_REQUESTS ' + er.message; throw er; }
     return [...doc.querySelectorAll('item')].map((it) => Object.fromEntries([...it.children].map((c) => [c.tagName, c.textContent.trim()])));
   } finally { clearTimeout(t); }
 }
@@ -5265,7 +5355,7 @@ async function nearStart() {
     N.region = d ? { sido: d.region_1depth_name, sgg: d.region_2depth_name } : null;
     N.status = 'ok'; N.at = Date.now(); render();
     await nearLoadTab(N.tab);
-  } catch (e) { N.status = 'error'; N.err = e.name === 'AbortError' ? '응답이 늦어요. 잠시 뒤 다시 해 주세요' : e.message || '불러오지 못했어요'; render(); }
+  } catch (e) { N.status = 'error'; N.err = friendlyError(e, '불러오지 못했어요. 잠시 뒤 다시 해 주세요'); render(); }
 }
 async function nearLoadTab(tab) {
   const N = S.near; if (!N.pos || N.data[tab] || N.loading[tab]) return;
@@ -5280,7 +5370,7 @@ async function nearLoadTab(tab) {
       ]);
       const bed = Object.fromEntries(beds.map((b) => [b.hpid, b]));
       const sevRow = Object.fromEntries((sev || []).map((r) => [r.hpid, r]));
-      N.data.er = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: bed[x.hpid]?.dutyTel3 || x.dutyTel1, telMain: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), kind: x.dutyDivName, bed: bed[x.hpid] || null, sev: severeList(sevRow[x.hpid]) }))
+      N.data.er = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: bed[x.hpid]?.dutyTel3 || x.dutyTel1, telMain: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.latitude && +x.longitude ? distKm(lat, lon, +x.latitude, +x.longitude) : +x.distance || 99, kind: x.dutyDivName, bed: bed[x.hpid] || null, sev: severeList(sevRow[x.hpid]) }))
         .sort((a, b) => a.km - b.km);
     } else if (tab === 'ped') {
       if (!N.region) throw new Error('지역을 확인하지 못했어요');
@@ -5293,10 +5383,10 @@ async function nearLoadTab(tab) {
       }).sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km).slice(0, 40);
     } else {
       const list = await careFetch('pharm-near', { WGS84_LAT: lat, WGS84_LON: lon, numOfRows: 40 });
-      N.data.pharm = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.distance || distKm(lat, lon, +x.latitude, +x.longitude), open: x.startTime ? careOpenState(x.startTime, x.endTime, now) : { state: 'closed', text: '오늘 쉬어요' }, end: hhmmMin(x.endTime), start: hhmmMin(x.startTime) }))
+      N.data.pharm = list.map((x) => ({ id: x.hpid, name: x.dutyName, addr: x.dutyAddr, tel: x.dutyTel1, lat: +x.latitude, lon: +x.longitude, km: +x.latitude && +x.longitude ? distKm(lat, lon, +x.latitude, +x.longitude) : +x.distance || 99, open: x.startTime ? careOpenState(x.startTime, x.endTime, now) : { state: 'closed', text: '오늘 쉬어요' }, end: hhmmMin(x.endTime), start: hhmmMin(x.startTime) }))
         .sort((a, b) => (OPEN_RANK[a.open.state] - OPEN_RANK[b.open.state]) || a.km - b.km);
     }
-  } catch (e) { N.data[tab] = { error: e.name === 'AbortError' ? '응답이 늦어요. 잠시 뒤 다시 해 주세요' : e.message || '불러오지 못했어요' }; }
+  } catch (e) { N.data[tab] = { error: friendlyError(e, '불러오지 못했어요. 잠시 뒤 다시 해 주세요') }; }
   N.loading[tab] = false; render();
 }
 
@@ -5432,13 +5522,15 @@ function nearOpenCard(x) {
     <div class="near-chips">${pill(x.open.text, OPEN_PILL[x.open.state])}${x.open.hours ? `<span class="small muted">오늘 ${x.open.hours}</span>` : ''}${x.er ? pill('응급실 있음', '') : ''}</div>
     <span class="small">${esc(x.addr || '')}</span>${nearActions(x, S.near.tab !== 'pharm')}</div>`;
 }
-function pageNearby() { return pageHead('지금 갈 수 있는 곳') + nearbyBody(true); }
 function nearbyBody(withLinks = true) {
-  const N = S.near; if (N.status === 'idle') setTimeout(() => { if (S.near.status === 'idle') nearStart(); }, 0);
+  const N = S.near; const allowed = !!kv('nearOk');
+  // 위치는 사용자가 '내 주변 찾기'를 한 번 누른 뒤부터 씀(탭을 열자마자 권한을 묻지 않게). 그 뒤로는 열 때 자동으로 찾고, 10분 넘게 지난 결과는 새로 찾는다
+  if (allowed && (N.status === 'idle' || (N.status === 'ok' && N.at && Date.now() - N.at > 10 * MIN))) setTimeout(() => { if (S.near.status === 'idle' || (S.near.status === 'ok' && Date.now() - S.near.at > 10 * MIN)) nearStart(); }, 0);
   let h = `<div class="stack">`;
   h += `<div class="notice danger near-119"><b>숨쉬기 힘들어하거나, 경련, 의식이 흐린 경우</b>에는 찾지 말고 바로 <a href="tel:119"><b>119</b></a>에 전화하세요.</div>`;
   h += `<div class="seg near-seg" role="group">${NEAR_TABS.map(([k, l]) => `<button type="button" aria-pressed="${N.tab === k}" data-act="nearTab" data-a="${k}">${l}</button>`).join('')}</div>`;
-  if (N.status === 'locating' || N.status === 'idle') h += `<div class="card empty">현재 위치를 확인하는 중이에요…</div>`;
+  if (!allowed && N.status === 'idle') h += `<div class="card stack near-ask"><b>지금 문 연 응급실·소아과·약국을 가까운 순으로 찾아요</b><span class="small muted">현재 위치는 주변 검색에만 쓰고 저장하지 않아요. 누르면 휴대폰이 위치 사용을 물어봐요.</span>${btn(`${ICONS.map} 내 주변 찾기`, 'nearAllow', { cls: 'primary block' })}</div>`;
+  else if (N.status === 'locating' || N.status === 'idle') h += `<div class="card empty">현재 위치를 확인하는 중이에요…</div>`;
   else if (N.status === 'loading') h += `<div class="card empty">주변 정보를 불러오는 중이에요…</div>`;
   else if (N.status === 'error') h += `<div class="card stack"><b>${esc(N.err)}</b><span class="small muted">${N.err.includes('권한') ? '휴대폰 설정에서 이 앱(또는 브라우저)의 위치 권한을 켜면 주변을 찾을 수 있어요. 아래 지도 앱으로 찾아도 돼요.' : '인터넷 연결을 확인하거나 아래 지도 앱으로 찾아보세요.'}</span>${btn('다시 시도', 'nearRetry', { cls: 'sm' })}</div>`;
   else {
@@ -5462,6 +5554,7 @@ function nearbyBody(withLinks = true) {
 }
 ACT.nearTab = (el) => { S.near.tab = el.dataset.a; render(); nearLoadTab(S.near.tab); };
 ACT.nearRetry = () => { S.near.status = 'idle'; nearStart(); };
+ACT.nearAllow = async () => { await setKV('nearOk', true); nearStart(); };
 
 /* ---- 23-hosp.js ---- */
 /* ===== 병원 탭: 지금 갈 수 있는 곳 + 진료 갈 때 필요한 것 =====
