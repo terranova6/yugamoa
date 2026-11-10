@@ -327,6 +327,9 @@ details.manual[open] summary { margin-bottom: 6px; }
 .side-btn[aria-pressed="true"] .tiny { color: var(--tone); font-weight: 600; }
 .quick button { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .qicon { position: relative; transition: transform .15s; }
+.hold-caption { margin: 6px 2px 2px; line-height: 1.5; }
+.toast.has-act { display: flex; align-items: center; gap: 12px; }
+.toast-btn { background: none; border: 0; color: var(--bg); font: inherit; font-weight: 700; text-decoration: underline; padding: 4px 2px; white-space: nowrap; cursor: pointer; }
 .hold-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: .9; }
 .holding .qicon { transform: scale(.9); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 35%, transparent); transition: transform .45s, box-shadow .45s; }
 .timer-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); z-index: 29; padding: 6px 12px; display: flex; flex-direction: column; gap: 6px; max-width: 560px; margin: 0 auto; }
@@ -463,10 +466,6 @@ details.manual[open] summary { margin-bottom: 6px; }
 .icon-btn.labeled { width: auto; padding: 0 12px; display: inline-flex; gap: 6px; font-size: .82rem; font-weight: 600; color: inherit; }
 .icon-btn.labeled svg { width: 18px; height: 18px; }
 .q-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 700; font-size: .85rem; line-height: 1; }
-.hint-tip { display: flex; align-items: center; gap: 8px; margin: 8px 2px 0; padding: 8px 8px 8px 12px; border-radius: 10px; background: var(--accent-soft, #e6f4f1); font-size: .82rem; }
-.hint-tip span { flex: 1; }
-.hint-tip button { border: 0; background: transparent; color: var(--muted); width: 32px; height: 32px; display: grid; place-items: center; }
-.hint-tip svg { width: 16px; height: 16px; }
 .sheet-head-pad { min-width: 40px; }
 .day-sum { display: inline-flex; gap: 10px; }
 .btn.with-icon { display: inline-flex; align-items: center; gap: 6px; }
@@ -663,6 +662,7 @@ details.more-info p { margin: 6px 0 0; line-height: 1.5; }
 /* 안드로이드·아이폰 앱(Capacitor)으로 열었는지 */
 const NATIVE = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
 const CAP = (name) => (NATIVE && (window.YuamoaCap?.[name] || window.Capacitor.Plugins?.[name])) || null;
+const IS_ANDROID = NATIVE && window.Capacitor?.getPlatform?.() === 'android';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1101,15 +1101,15 @@ const TYPES = {
   breast: { name: '모유', group: 'feed', kind: 'duration', timer: 'breast', tags: ['트림함', '트림 안 함', '잘 먹음', '보챔'] },
   formula: { name: '분유', group: 'feed', kind: 'point', amount: { unit: 'ml', step: 10, presets: [60, 90, 120, 150, 180, 210] }, tags: ['유산균', '비타민D', '남김', '토함'] },
   pumped: { name: '유축 수유', group: 'feed', kind: 'point', amount: { unit: 'ml', step: 10, presets: [60, 90, 120, 150, 180] }, tags: ['냉동 모유', '남김'] },
-  pump: { name: '유축', group: 'feed', kind: 'duration', amount: { unit: 'ml', step: 10, presets: [50, 80, 100, 120, 150] }, tags: ['전동 유축기', '손 유축', '양 적음'] },
+  pump: { name: '유축', group: 'feed', kind: 'duration', timer: 'simple', amount: { unit: 'ml', step: 10, presets: [50, 80, 100, 120, 150] }, tags: ['전동 유축기', '손 유축', '양 적음'] },
   solid: { name: '이유식', group: 'feed', kind: 'point', amount: { unit: 'g', step: 10, units: ['g', 'ml'], presets: [30, 50, 80, 100, 150] }, kinds: ['쌀미음', '소고기', '닭고기', '채소', '과일', '달걀'], tags: ['잘 먹음', '남김', '거부함', '알레르기 의심'] },
   snack: { name: '간식', group: 'feed', kind: 'point', amount: { unit: 'g', step: 10, units: ['g', 'ml'], presets: [20, 40, 60, 100] }, kinds: ['퓨레', '치즈', '떡뻥', '과일', '요거트'], tags: ['잘 먹음', '관심 없음'] },
   milk: { name: '우유', group: 'feed', kind: 'point', amount: { unit: 'ml', step: 10, presets: [100, 150, 200, 250] }, tags: ['생우유', '두유'] },
   water: { name: '물', group: 'feed', kind: 'point', amount: { unit: 'ml', step: 10, presets: [30, 50, 100, 150] }, tags: [] },
   diaper: { name: '기저귀', group: 'care', kind: 'point', select: { key: 'kind', options: ['소변', '대변', '둘 다'] }, tags: ['묽음', '단단함', '설사', '피 섞임', '기저귀 발진'] },
   sleep: { name: '수면', group: 'care', kind: 'duration', timer: 'simple', select: { key: 'kind', options: ['낮잠', '밤잠'] }, tags: ['자주 깸', '쉽게 잠듦', '안아서 재움', '뒤척임'] },
-  bath: { name: '목욕', group: 'care', kind: 'duration', tags: ['보습로션', '머리 감김', '좌욕'] },
-  play: { name: '놀이', group: 'care', kind: 'duration', kinds: ['책 읽어주기', '촉감놀이', '산책', '노래'], tags: ['좋아함', '관심 없음'] },
+  bath: { name: '목욕', group: 'care', kind: 'duration', timer: 'simple', tags: ['보습로션', '머리 감김', '좌욕'] },
+  play: { name: '놀이', group: 'care', kind: 'duration', timer: 'simple', kinds: ['책 읽어주기', '촉감놀이', '산책', '노래'], tags: ['좋아함', '관심 없음'] },
   tummy: { name: '터미타임', group: 'care', kind: 'duration', timer: 'simple', tags: ['좋아함', '힘들어함'] },
   temp: { name: '체온', group: 'health', kind: 'point', tags: ['해열제 먹은 뒤', '자는 중', '보챔'] },
   med: { name: '투약', group: 'health', kind: 'point', tags: ['토함', '잘 먹음', '거부함'] },
@@ -1122,6 +1122,10 @@ const TYPES = {
   etc: { name: '기타', group: 'etc', kind: 'point', kinds: ['마사지', '구토', '외출', '손톱 깎기'], tags: ['좋아함'] },
 };
 const DEFAULT_QUICK = ['breast', 'formula', 'diaper', 'sleep', 'solid', 'pump', 'temp', 'med', 'growth', 'bath', 'snack', 'diary'];
+/* 기록 버튼을 꾹 눌렀을 때: 시간을 재는 기록은 타이머 시작, 한 번에 끝나는 기록은 지난번과 같은 내용으로 바로 저장.
+   체온·투약·성장처럼 값을 재야 하거나 내용을 써야 하는 기록은 틀린 값이 남지 않도록 입력 화면을 바로 연다 */
+const HOLD_OPEN = ['temp', 'med', 'growth', 'symptom', 'vaccine', 'hospital', 'diary', 'photo', 'etc'];
+function holdKind(type) { return TYPES[type]?.timer ? 'timer' : HOLD_OPEN.includes(type) ? 'open' : 'save'; }
 const FEED_TYPES = ['breast', 'formula', 'pumped'];
 const LIQUID_TYPES = ['formula', 'pumped', 'milk'];
 
@@ -2215,16 +2219,18 @@ const CHANGE = {};       // change 이벤트 동작 모음
 
 function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); const t = ks.reduce((a, k) => (a[k] == null ? (a[k] = {}) : a[k]), o); t[last] = v; }
 
-function toast(msg) {
-  S.toast = msg; renderToast();
-  // 긴 안내는 끝까지 읽을 수 있게 글자 수만큼 더 오래 보여 준다 (2.2초~6초)
-  clearTimeout(toast._t); toast._t = setTimeout(() => { S.toast = null; renderToast(); }, Math.min(6000, Math.max(2200, String(msg).length * 85)));
+function toast(msg, action = null) {
+  S.toast = msg; S.toastAct = action; renderToast();
+  // 긴 안내는 끝까지 읽을 수 있게 글자 수만큼 더 오래 보여 준다 (2.2초~6초). 되돌리기 버튼이 있으면 5초 이상
+  clearTimeout(toast._t); toast._t = setTimeout(() => { S.toast = null; S.toastAct = null; renderToast(); }, Math.min(6000, Math.max(action ? 5000 : 2200, String(msg).length * 85)));
 }
 function renderToast() {
   let el = $('#toast');
   if (!S.toast) { el?.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
-  el.textContent = S.toast;
+  const a = S.toastAct;
+  el.innerHTML = `<span>${esc(S.toast)}</span>${a ? `<button type="button" class="toast-btn" data-act="${a.act}" data-a="${esc(a.a || '')}">${esc(a.label)}</button>` : ''}`;
+  el.classList.toggle('has-act', !!a);
 }
 
 function pushPage(page, args = {}) { S.stack.push({ page, args }); render(); window.scrollTo(0, 0); }
@@ -2418,8 +2424,7 @@ function viewHome(child) {
   html += homePhotoStrip(child);
 
   html += sectionTitle('기록하기', '버튼 편집', 'push', 'quickEdit');
-  html += `<div class="quick">${quick.map((t) => `<button type="button" data-act="newRec" data-a="${t}" ${TYPES[t].timer ? `data-hold="${t}"` : ''}><span class="qicon" style="--tone:${tone(t)}">${svgIcon(t)}${TYPES[t].timer ? '<i class="hold-dot" aria-hidden="true"></i>' : ''}</span>${esc(TYPES[t].name)}</button>`).join('')}</div>
-    ${kv('holdHintSeen') ? '' : `<div class="hint-tip"><span>점 있는 버튼은 <b>길게 누르면</b> 타이머가 바로 시작돼요</span><button type="button" data-act="holdHintOk" aria-label="안내 닫기">${ICONS.close}</button></div>`}`;
+  html += `<div class="quick">${quick.map(quickBtn).join('')}</div>${holdCaption()}`;
 
   const sched = [...scheduleItems(child, 'vaccine', now), ...scheduleItems(child, 'checkup', now)].filter((x) => x.status === 'due' || x.status === 'soon' || (x.status === 'overdue' && now - x.toTs < 60 * DAY)).sort((a, b) => a.fromTs - b.fromTs).slice(0, 3);
   if (sched.length) {
@@ -2492,6 +2497,32 @@ ACT.timerSide = async (el) => {
   haptic(); await setKV('timers', list); render();
 };
 
+/* 기록 버튼 (홈·가운데 기록 버튼 창): 흰 점 = 꾹 누르면 타이머 */
+function quickBtn(t) {
+  const k = holdKind(t);
+  return `<button type="button" data-act="newRec" data-a="${t}" data-hold="${t}"><span class="qicon" style="--tone:${tone(t)}">${svgIcon(t)}${k === 'timer' ? '<i class="hold-dot" aria-hidden="true"></i>' : ''}</span>${esc(TYPES[t].name)}</button>`;
+}
+function holdCaption() { return `<p class="small muted hold-caption">버튼을 <b>꾹 누르면</b> 바로 기록돼요. 흰 점이 있는 버튼은 타이머가 시작되고, 나머지는 지난번과 같은 내용으로 저장돼요. (체온·투약처럼 재야 하는 기록은 입력 화면이 열려요)</p>`; }
+
+/* 꾹 눌러 바로 저장: 편집 화면을 열었을 때 채워지는 값(지난번과 같은 양·종류) 그대로 저장하고, 잘못 눌렀으면 되돌리기 */
+async function quickSave(type) {
+  const child = activeChild(); if (!child) return; const t = TYPES[type];
+  if (t.amount && !lastOf(type, child.id)) { openEditor(newDraft(type), false); toast('처음 한 번은 양을 정해 저장해 주세요. 다음부터는 꾹 누르면 같은 양으로 바로 저장돼요'); return; }
+  const r = newDraft(type); const last = lastOf(type, child.id);
+  if (t.kinds && last?.data?.kinds?.length) r.data.kinds = [...last.data.kinds]; // 이유식·간식: 지난번 재료도 같이
+  await saveRecord(r); render(); try { navigator.vibrate && navigator.vibrate(25); } catch (e) { /* 무시 */ }
+  const what = t.amount && r.value ? `${recTitle(r)} ${fmtNum(r.value)}${r.unit || ''}` : recTitle(r);
+  toast(`${what} 저장했어요`, { label: '되돌리기', act: 'undoQuick', a: r.id });
+  checkSupplyAlerts(r);
+}
+ACT.undoQuick = async (el) => { await deleteRecord(el.dataset.a); render(); toast('되돌렸어요'); };
+function holdAction(type) {
+  S.recPick = false; const k = holdKind(type);
+  if (k === 'timer') return startTimer(type);
+  if (k === 'save') return quickSave(type);
+  openEditor(newDraft(type), false);
+}
+
 /* 타이머 */
 function segTotal(t, side) {
   const now = Date.now();
@@ -2512,7 +2543,8 @@ ACT.timerCancel = async (el) => {
 ACT.timerStop = async (el) => {
   const list = timers(); const t = list.find((x) => x.id === el.dataset.a); if (!t) return;
   const now = Date.now();
-  const r = { id: uid(), childId: t.childId, type: t.type, start: t.start, end: now, value: null, unit: null, data: { tags: [] }, memo: '', photoIds: [] };
+  const base = ['pump', 'bath', 'play'].includes(t.type) && t.childId === activeChild()?.id ? newDraft(t.type) : null; // 유축은 지난번 양·보관 위치를 채워 둠
+  const r = { id: uid(), childId: t.childId, type: t.type, start: t.start, end: now, value: base?.value ?? null, unit: base?.unit ?? null, data: base?.data || { tags: [] }, memo: '', photoIds: [] };
   if (t.type === 'breast') { r.data.left = Math.round(segTotal(t, 'L') / MIN); r.data.right = Math.round(segTotal(t, 'R') / MIN); }
   if (t.type === 'sleep') { const h = new Date(t.start).getHours(); r.data.kind = h >= 19 || h < 6 ? '밤잠' : '낮잠'; }
   await saveRecord(r); await setKV('timers', list.filter((x) => x.id !== t.id));
@@ -3647,6 +3679,10 @@ function pageNotify() {
     <div class="card"><div class="spread"><span><b>해열제 알림</b><br><span class="small muted">다음 해열제를 먹일 수 있는 시각, 먹인 지 1시간 뒤 체온 다시 재기</span></span>${btn(n.med ? '켜짐' : '꺼짐', 'nToggle', { a: 'med', cls: n.med ? 'sm primary' : 'sm' })}</div></div>
     <div class="card stack"><div class="spread"><span><b>추억 영상 알림</b><br><span class="small muted">100일·돌 같은 기념일, 매달 생일, 1년·한 달 전 이맘때 사진을 음악과 함께 영상으로 보내 드려요</span></span>${btn(memSettings().on ? '켜짐' : '꺼짐', 'nMemory', { cls: memSettings().on ? 'sm primary' : 'sm' })}</div>
       ${memSettings().on ? `<div class="chips">${[[9, '오전 9시'], [12, '낮 12시'], [20, '저녁 8시'], [21, '밤 9시']].map(([h, l]) => chip(l, memSettings().hour === h, 'nMemHour', h)).join('')}</div>` : ''}</div>
+    <div class="card stack"><b>울리는 방식</b><span class="small muted">수유·낮잠·해열제·체온 다시 재기 알림에 적용돼요</span>
+      <div class="chips">${[['sv', '소리+진동'], ['v', '진동만'], ['s', '소리만']].map(([k, l]) => chip(l, alertStyle().mode === k, 'nMode', k)).join('')}</div>
+      <div class="spread"><span><b>전화처럼 계속 울리기</b><br><span class="small muted">알림을 열거나 지울 때까지 진동과 소리가 반복돼요. 밤에 놓치지 않게 할 때 켜 두세요${NATIVE && !IS_ANDROID ? '. 아이폰은 한 번만 울려요(애플 정책)' : ''}</span></span>${btn(alertStyle().ring ? '켜짐' : '꺼짐', 'nRing', { cls: alertStyle().ring ? 'sm primary' : 'sm' })}</div>
+      ${NATIVE ? '' : '<p class="small muted">웹앱에서는 휴대폰 알림 설정을 따라 울려요. 진동 방식과 계속 울리기는 안드로이드 앱에서 제대로 돼요.</p>'}</div>
     ${NATIVE ? '<p class="small muted">알림은 미리 예약돼서 앱을 꺼 두어도 정한 시각에 울려요. 휴대폰 설정에서 육아모아 알림이 켜져 있어야 해요.</p>' : `<p class="small muted">알림은 앱이 열려 있거나 최근에 사용한 상태에서 울려요. 휴대폰이 앱을 완전히 종료하면 늦거나 오지 않을 수 있어요. 앱(안드로이드)으로 설치하면 앱을 꺼 두어도 울려요.</p>`}
     ${btn('알림 시험해 보기', 'nTest', { cls: 'block' })}</div>`;
 }
@@ -3658,14 +3694,23 @@ ACT.nToggle = async (el) => {
 ACT.nFeedH = async (el) => { const n = { ...kv('notify', {}) }; n.feedH = +el.dataset.a; await setKV('notify', n); render(); nativeRemindSync(); };
 ACT.nMemory = async () => { const n = { ...kv('notify', {}) }; n.memory = !memSettings().on; if (n.memory && NATIVE) await askNotifyPermission(); if (n.memory && !NATIVE && typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } } await setKV('notify', n); render(); };
 ACT.nMemHour = async (el) => { const n = { ...kv('notify', {}) }; n.memoryHour = +el.dataset.a; await setKV('notify', n); render(); };
-ACT.nTest = () => notify('육아모아 알림', '알림이 이렇게 표시돼요.');
-async function notify(title, body, data = null, quiet = false) {
+/* 울리는 방식: mode sv(소리+진동)·v(진동만)·s(소리만), ring = 전화처럼 확인할 때까지 반복 */
+function alertStyle() { const n = kv('notify', {}) || {}; return { mode: ['sv', 'v', 's'].includes(n.mode) ? n.mode : 'sv', ring: !!n.ring }; }
+const RING_VIBE = [1000, 600, 1000, 600, 1000]; // 전화 진동처럼 길게
+ACT.nMode = async (el) => { const n = { ...kv('notify', {}) }; n.mode = el.dataset.a; await setKV('notify', n); render(); nativeRemindSync(); };
+ACT.nRing = async () => { const n = { ...kv('notify', {}) }; n.ring = !alertStyle().ring; await setKV('notify', n); render(); nativeRemindSync(); };
+ACT.nTest = async () => { await askNotifyPermission(); notify('육아모아 알림', alertStyle().ring ? '알림이 이렇게 울려요. 알림을 열거나 지우면 멈춰요.' : '알림이 이렇게 울려요.', null, false, true); };
+async function notify(title, body, data = null, quiet = false, alert = false) {
   if (!quiet) toast(`${title}: ${body}`);
-  if (NATIVE) { nativeNotifyNow(title, body); return; }
+  const st = alertStyle();
+  if (alert && st.mode !== 's') { try { navigator.vibrate && navigator.vibrate(RING_VIBE); } catch (e) { /* 무시 */ } }
+  if (NATIVE) { nativeNotifyNow(title, body, alert); return; }
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const opt = { body, tag: title, icon: 'icon-192.png', data };
+    if (alert) { opt.renotify = true; opt.requireInteraction = st.ring; opt.silent = st.mode === 'v'; if (st.mode !== 's') opt.vibrate = RING_VIBE; }
     const reg = await navigator.serviceWorker?.getRegistration?.();
-    if (reg) reg.showNotification(title, { body, tag: title, icon: 'icon-192.png', data }); else new Notification(title, { body, icon: 'icon-192.png' });
+    if (reg) reg.showNotification(title, opt); else new Notification(title, opt);
   } catch (e) { /* 무시 */ }
 }
 async function askNotifyPermission() {
@@ -3673,7 +3718,7 @@ async function askNotifyPermission() {
   if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) { /* 무시 */ } }
 }
 /* 앱(안드로이드·아이폰)에서는 알림을 미리 예약해 두므로 앱이 꺼져 있어도 울린다. 앱이 열려 있을 때 중복 알림 대신 화면 안내만 */
-const remind = (title, body) => NATIVE ? toast(`${title}: ${body}`) : notify(title, body);
+const remind = (title, body) => { if (NATIVE) { toast(`${title}: ${body}`); if (alertStyle().mode !== 's') try { navigator.vibrate && navigator.vibrate(RING_VIBE); } catch (e) { /* 무시 */ } return; } notify(title, body, null, false, true); };
 /* 앞으로 울릴 알림 목록 (앱에서 미리 예약하는 용도) */
 function reminderPlan(now = Date.now()) {
   const n = kv('notify', null); const child = activeChild(); const out = [];
@@ -3887,7 +3932,7 @@ ACT.fbSend = async () => {
 
 /* ---- 14-app.js ---- */
 /* ===== 앱 골격: 그리기 · 이동 · 이벤트 · 시작 ===== */
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.23.0';
 const TABS = [['home', '홈', 'home'], ['log', '기록', 'timeline'], ['rec', '추가', 'plus'], ['health', '건강', 'health'], ['hosp', '병원', 'hospital']];
 const LOG_TABS = ['timeline', 'album'];
 const PAGES = {
@@ -3975,12 +4020,12 @@ ACT.tab = (el) => { const was = S.tab; S.tab = el.dataset.a; if (S.tab === 'log'
 ACT.back = () => popPage();
 ACT.push = (el) => { const p = el.dataset.a; if (p === 'report' && !S.stack.some((x) => x.page === 'report')) S.report = { hours: 72 }; if (p === 'lock') S.form.lock = null; pushPage(p, { a: el.dataset.b }); };
 
-/* 길게 누르기: 타이머 바로 시작 */
+/* 꾹 누르기: 타이머 시작 또는 바로 저장 (holdAction) */
 let holdT = null, holdXY = null, holdFired = false;
 document.addEventListener('pointerdown', (ev) => {
   const el = ev.target.closest('[data-hold]'); if (!el) return;
   holdFired = false; holdXY = [ev.clientX, ev.clientY]; el.classList.add('holding');
-  holdT = setTimeout(() => { holdFired = true; el.classList.remove('holding'); if (!kv('holdHintSeen')) setKV('holdHintSeen', true); S.recPick = false; startTimer(el.dataset.hold); }, 450);
+  holdT = setTimeout(() => { holdFired = true; el.classList.remove('holding'); holdAction(el.dataset.hold); }, 450);
 });
 const holdCancel = () => { clearTimeout(holdT); holdT = null; $$('.holding').forEach((x) => x.classList.remove('holding')); };
 document.addEventListener('pointerup', holdCancel); document.addEventListener('pointercancel', holdCancel);
@@ -4775,16 +4820,15 @@ ACT.stToggle = async (el) => {
 };
 ACT.stReset = async () => { await setKV('statusCards', DEFAULT_STATUS); render(); };
 
-ACT.holdHintOk = async () => { await setKV('holdHintSeen', true); render(); };
 
 /* 가운데 "기록" 버튼: 어느 탭에서든 기록 종류를 골라 바로 기록 */
 function viewRecPick(child) {
   const quick = kv('quickTypes', DEFAULT_QUICK).filter((t) => TYPES[t]);
   const rest = Object.keys(TYPES).filter((t) => !quick.includes(t) && t !== 'photo');
-  const btnOf = (t) => `<button type="button" data-act="newRec" data-a="${t}" ${TYPES[t].timer ? `data-hold="${t}"` : ''}><span class="qicon" style="--tone:${tone(t)}">${svgIcon(t)}${TYPES[t].timer ? '<i class="hold-dot" aria-hidden="true"></i>' : ''}</span>${esc(TYPES[t].name)}</button>`;
+  const btnOf = quickBtn;
   return `<div class="scrim" data-act="recClose"></div><div class="sheet rec-sheet" role="dialog" aria-modal="true" aria-label="기록하기">
     <div class="sheet-head"><button type="button" data-act="recClose" aria-label="닫기">${ICONS.close}</button><h2>무엇을 기록할까요</h2><span class="sheet-head-pad" aria-hidden="true"></span></div>
-    <div class="sheet-body"><div class="quick">${quick.map(btnOf).join('')}</div>
+    <div class="sheet-body"><div class="quick">${quick.map(btnOf).join('')}</div>${holdCaption()}
     ${rest.length ? `<details class="more-info"><summary>다른 종류</summary><div class="quick" style="margin-top:10px">${rest.map(btnOf).join('')}</div></details>` : ''}</div></div>`;
 }
 ACT.recPick = () => { S.recPick = true; render(); };
@@ -5597,21 +5641,32 @@ async function nativeNotifyPermission() {
   const LN = CAP('LocalNotifications'); if (!LN) return false;
   try { let p = await LN.checkPermissions(); if (p.display !== 'granted') p = await LN.requestPermissions(); return p.display === 'granted'; } catch (e) { return false; }
 }
+/* 안드로이드 알림 채널: 채널마다 소리·진동이 정해져 있고 만든 뒤에는 바꿀 수 없어서 방식별로 하나씩 만든다.
+   진동 패턴(전화처럼 길게)·알람 음량·무음은 patch-native.mjs가 플러그인에 넣은 처리로 적용된다 */
+let _chanOk = false;
+async function nativeChannels(LN) {
+  if (_chanOk || !IS_ANDROID || !LN.createChannel) return; _chanOk = true;
+  const C = [['sv', '육아 알림 (소리+진동)', 'default', true], ['v', '육아 알림 (진동만)', 'none', true], ['s', '육아 알림 (소리만)', 'default', false]];
+  for (const [k, name, sound, vibration] of C) { try { await LN.createChannel({ id: 'yuamoa_' + k, name, description: '수유·낮잠·해열제·체온 다시 재기', importance: 4, visibility: 1, sound, vibration }); } catch (e) { _chanOk = false; } }
+}
+function nativeAlertOpts() { const st = alertStyle(); return { channelId: 'yuamoa_' + st.mode, extra: { insistent: st.ring } }; }
 async function nativeRemindSync() {
   const LN = CAP('LocalNotifications'); if (!LN) return;
-  const plan = reminderPlan(); const sig = JSON.stringify(plan.map((x) => [x.id, Math.round(x.at / 60000)]));
+  const plan = reminderPlan(); const st = alertStyle(); const sig = JSON.stringify([st, plan.map((x) => [x.id, Math.round(x.at / 60000)])]);
   if (sig === _remindSig) return; _remindSig = sig;
+  await nativeChannels(LN);
   try {
     const { notifications = [] } = await LN.getPending();
     const ours = notifications.filter((x) => x.id >= 100 && x.id < 200);
     if (ours.length) await LN.cancel({ notifications: ours.map((x) => ({ id: x.id })) });
-    if (plan.length) await LN.schedule({ notifications: plan.map((x) => ({ id: x.id, title: x.title, body: x.body, schedule: { at: new Date(x.at), allowWhileIdle: true } })) });
+    if (plan.length) await LN.schedule({ notifications: plan.map((x) => ({ id: x.id, title: x.title, body: x.body, schedule: { at: new Date(x.at), allowWhileIdle: true }, ...nativeAlertOpts() })) });
   } catch (e) { _remindSig = ''; }
 }
 let _nowId = 1000;
-async function nativeNotifyNow(title, body) {
+async function nativeNotifyNow(title, body, alert = false) {
   const LN = CAP('LocalNotifications'); if (!LN) return;
-  try { await LN.schedule({ notifications: [{ id: _nowId++ % 100000 + 1000, title, body, schedule: { at: new Date(Date.now() + 1000) } }] }); } catch (e) { /* 무시 */ }
+  if (alert) await nativeChannels(LN);
+  try { await LN.schedule({ notifications: [{ id: _nowId++ % 100000 + 1000, title, body, schedule: { at: new Date(Date.now() + 1000) }, ...(alert ? nativeAlertOpts() : {}) }] }); } catch (e) { /* 무시 */ }
 }
 const blobB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(blob); });
 async function nativeSaveFiles(files, zipName, title) {
